@@ -17,7 +17,12 @@
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   async function login(email) {
-    const { error } = await supabase.auth.signInWithOtp({ email });
+    const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: {
+    emailRedirectTo: window.location.href
+  }
+});
     if (error) alert(error.message);
     else alert("Проверь почту — отправил ссылку для входа.");
   }
