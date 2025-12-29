@@ -9,7 +9,44 @@
 
     <body>
       <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
+      <script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+  const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bXZrYml4Znpsc3Vtdm16b3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMTA4ODMsImV4cCI6MjA4MjU4Njg4M30.hFW0Ndbs7STWlA294xe3lQqJ4Lj2mxFGGuQP-ncbnDY";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  async function login(email) {
+    const { error } = await supabase.auth.signInWithOtp({ email });
+    if (error) alert(error.message);
+    else alert("Проверь почту — отправил ссылку для входа.");
+  }
+
+  async function getUser() {
+    const { data } = await supabase.auth.getUser();
+    return data.user;
+  }
+
+  const root = document.getElementById("app") || document.body;
+  const user = await getUser();
+
+  if (!user) {
+    root.innerHTML = `
+      <div style="max-width:420px;margin:60px auto">
+        <h2>Login</h2>
+        <input id="email" placeholder="you@company.com" />
+        <button id="login">Send magic link</button>
+      </div>`;
+    document.getElementById("login").onclick =
+      () => login(document.getElementById("email").value.trim());
+  } else {
+    root.innerHTML = `
+      <div style="max-width:420px;margin:60px auto">
+        <h2>You are logged in</h2>
+        <p>${user.email}</p>
+      </div>`;
+  }
+</script>
     </body>
   </html>
   
