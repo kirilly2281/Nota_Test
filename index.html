@@ -103,12 +103,19 @@
 
   // 5) Рендер
   root.innerHTML = `
-    <div style="max-width:900px;margin:50px auto;font-family:system-ui">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2>Tasks</h2>
-        <button id="logout">Logout</button>
-      </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
+  <div>
+    <h2 style="margin:0">Tasks</h2>
+    <div style="margin-top:8px;opacity:.85">
+      Completed: <b>${completedCount}</b> / <b>${totalTasks}</b> (${progressPct}%)
+    </div>
+    <div style="margin-top:8px;width:340px;max-width:60vw;background:#eee;border-radius:999px;height:10px;overflow:hidden">
+      <div style="height:10px;width:${progressPct}%;background:#111"></div>
+    </div>
+  </div>
 
+  <button id="logout">Logout</button>
+</div>
       <div style="margin-top:18px">
         ${(tasks || []).map(t => {
           const s = subByTaskId.get(t.id);
