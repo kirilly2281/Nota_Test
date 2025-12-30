@@ -63,7 +63,8 @@ const { data: profile, error } = await supabase
 if (error) {
   root.innerHTML = `<pre>${error.message}</pre>`;
 } else {
-  // 1) загрузить задания из базы
+  root.innerHTML = `
+    // 1) загрузить задания из базы
 const { data: tasks, error: tasksError } = await supabase
   .from("tasks")
   .select("id, title, description, materials_url, sort_order")
@@ -109,7 +110,6 @@ if (tasksError) {
     });
   });
 }
-
 }
         <p>${user.email}</p>
       </div>`;
