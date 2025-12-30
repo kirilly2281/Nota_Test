@@ -1,203 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UX/UI Training Platform</title>
+  </head>
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>UX/UI Training Platform</title>
-    </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-    <body>
+      const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
+      const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE";
+      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-      <div id="root"></div>
-      <script type="module">
-  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+      const root = document.getElementById("root");
+      root.innerHTML = "<p style='padding:20px'>Loading...</p>";
 
-  const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bXZrYml4Znpsc3Vtdm16b3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMTA4ODMsImV4cCI6MjA4MjU4Njg4M30.hFW0Ndbs7STWlA294xe3lQqJ4Lj2mxFGGuQP-ncbnDY";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      async function login(email) {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: {
+            // Жёстко укажите ваш Pages URL, чтобы не улетать на корень домена
+            emailRedirectTo: "https://kirilly2281.github.io/Nota_Test/"
+          }
+        });
 
-  async function login(email) {
-    const { error } = await supabase.auth.signInWithOtp({
-  email,
-  options: {
-    emailRedirectTo: window.location.href
-  }
-});
-    if (error) alert(error.message);
-    else alert("Проверь почту — отправил ссылку для входа.");
-  }
+        if (error) alert(error.message);
+        else alert("Проверь почту — отправил ссылку для входа.");
+      }
 
-  async function getUser() {
-    const { data } = await supabase.auth.getUser();
-    return data.user;
-  }
+      async function logout() {
+        await supabase.auth.signOut();
+        location.reload();
+      }
 
-  const root = document.getElementById("root");
-        root.innerHTML = "<p style='padding:20px'>Loading...</p>";
-  const user = await getUser();
+      // 1) Проверяем пользователя
+      const { data: userResp, error: userErr } = await supabase.auth.getUser();
+      if (userErr) {
+        root.innerHTML = `<pre style="white-space:pre-wrap">Auth error:\n${userErr.message}</pre>`;
+        throw userErr;
+      }
 
-  if (!user) {
-    root.innerHTML = `
-      <div style="max-width:420px;margin:60px auto">
-        <h2>Login</h2>
-        <input id="email" placeholder="you@company.com" />
-        <button id="login">Send magic link</button>
-      </div>`;
-    document.getElementById("login").onclick =
-      () => login(document.getElementById("email").value.trim());
-  } else {
-    const { data: { user } } = await supabase.auth.getUser();
+      const user = userResp.user;
 
-const { data: subs, error: subsError } = await supabase
-  .from("submissions")
-  .select("id, task_id, result_url, student_comment, status, created_at")
-  .eq("user_id", user.id);
+      // 2) Если не залогинен — показываем форму
+      if (!user) {
+        root.innerHTML = `
+          <div style="max-width:420px;margin:60px auto;font-family:system-ui">
+            <h2>Login</h2>
+            <input id="email" placeholder="you@company.com" style="width:100%;padding:10px;margin:10px 0"/>
+            <button id="login" style="padding:10px 14px">Send magic link</button>
+          </div>
+        `;
 
-if (subsError) {
-  root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
-  return;
-}
+        document.getElementById("login").onclick = () => {
+          const email = document.getElementById("email").value.trim();
+          if (!email) return alert("Введите email");
+          login(email);
+        };
 
-// Удобный “словарь”: task_id -> submission
-  const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
+        // Важно: дальше не идём
+        throw new Error("Not authenticated");
+      }
 
-  // Загружаем задания из базы
-  const { data: tasks, error } = await supabase
-    .from("tasks")
-    .select("id, title, description, materials_url, sort_order")
-    .order("sort_order", { ascending: true });
+      // 3) Загружаем мои submissions
+      const { data: subs, error: subsError } = await supabase
+        .from("submissions")
+        .select("id, task_id, result_url, student_comment, status, created_at")
+        .eq("user_id", user.id);
 
-  if (error) {
-    root.innerHTML = `
-      <pre style="white-space:pre-wrap">
-Ошибка загрузки заданий:
-${error.message}
-      </pre>
-    `;
-  } else {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    root.innerHTML = "<pre>Not authenticated</pre>";
-    return;
-  }
+      if (subsError) {
+        root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
+        throw subsError;
+      }
 
-  // 1) Загружаем мои сдачи
-  const { data: subs, error: subsError } = await supabase
-    .from("submissions")
-    .select("id, task_id, result_url, student_comment, status, created_at")
-    .eq("user_id", user.id);
+      const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
 
-  if (subsError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
-    return;
-  }
+      // 4) Загружаем tasks
+      const { data: tasks, error: tasksError } = await supabase
+        .from("tasks")
+        .select("id, title, description, materials_url, sort_order")
+        .order("sort_order", { ascending: true });
 
-  const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
+      if (tasksError) {
+        root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
+        throw tasksError;
+      }
 
-  // 2) Загружаем задания
-  const { data: tasks, error: tasksError } = await supabase
-    .from("tasks")
-    .select("id, title, description, materials_url, sort_order")
-    .order("sort_order", { ascending: true });
+      // 5) Рендер
+      root.innerHTML = `
+        <div style="max-width:900px;margin:50px auto;font-family:system-ui">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2>Tasks</h2>
+            <button id="logout">Logout</button>
+          </div>
 
-  if (tasksError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
-    return;
-  }
+          <div style="margin-top:18px">
+            ${(tasks || [])
+              .map(t => {
+                const s = subByTaskId.get(t.id);
 
-  // 3) Рендер
-  root.innerHTML = `
-    <div style="max-width:900px;margin:50px auto;font-family:system-ui">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2>Tasks</h2>
-        <button id="logout">Logout</button>
-      </div>
+                const statusBlock = !s
+                  ? `<div style="margin-top:10px">
+                       <button class="submit" data-task="${t.id}">Submit</button>
+                     </div>`
+                  : `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
+                       <div style="font-weight:600">Submitted</div>
+                       ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
+                       ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${s.student_comment}</div>` : ""}
+                       <div style="margin-top:8px">
+                         <button class="edit" data-sub="${s.id}">Edit</button>
+                       </div>
+                     </div>`;
 
-      <div style="margin-top:18px">
-        ${(tasks || []).map(t => {
-  const s = subByTaskId.get(t.id);
+                return `
+                  <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
+                    <div style="font-weight:700">${t.title}</div>
+                    <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
+                    ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
+                    ${statusBlock}
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        </div>
+      `;
 
-  const statusBlock = !s
-    ? `<div style="margin-top:10px">
-         <button class="submit" data-task="${t.id}">Submit</button>
-       </div>`
-    : `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
-         <div style="font-weight:600">Submitted</div>
-         ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
-         ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${s.student_comment}</div>` : ""}
-         <div style="margin-top:8px">
-           <button class="edit" data-sub="${s.id}">Edit</button>
-         </div>
-       </div>`;
+      document.getElementById("logout").onclick = logout;
 
-  return `
-    <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
-      <div style="font-weight:700">${t.title}</div>
-      <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
-      ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
-      ${statusBlock}
-    </div>
-  `;
-}).join("")}
-      </div>
-    </div>
-  `;
+      // 6) Submit
+      document.querySelectorAll(".submit").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const taskId = Number(btn.getAttribute("data-task"));
 
-  // logout
-  document.getElementById("logout").onclick = async () => {
-    await supabase.auth.signOut();
-    location.reload();
-  };
+          const resultUrl = prompt("Вставь ссылку на результат (Figma/Notion/GDrive):");
+          if (!resultUrl) return;
 
-  // submit
-  document.querySelectorAll(".submit").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const taskId = Number(btn.getAttribute("data-task"));
-      const resultUrl = prompt("Вставь ссылку на результат (Figma/Notion/GDrive):");
-      if (!resultUrl) return;
-      const comment = prompt("Комментарий к выполнению (необязательно):") || "";
+          const comment = prompt("Комментарий к выполнению (необязательно):") || "";
 
-      const { error } = await supabase.from("submissions").insert({
-        task_id: taskId,
-        user_id: user.id,
-        result_url: resultUrl,
-        student_comment: comment,
-        status: "submitted"
+          const { error } = await supabase.from("submissions").insert({
+            task_id: taskId,
+            user_id: user.id,
+            result_url: resultUrl,
+            student_comment: comment,
+            status: "submitted"
+          });
+
+          if (error) alert("Ошибка отправки: " + error.message);
+          else {
+            alert("Отправлено");
+            location.reload();
+          }
+        });
       });
 
-      if (error) alert("Ошибка отправки: " + error.message);
-      else {
-        alert("Отправлено");
-        location.reload();
-      }
-    });
-  });
+      // 7) Edit
+      document.querySelectorAll(".edit").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const subId = Number(btn.getAttribute("data-sub"));
 
-  // edit
-  document.querySelectorAll(".edit").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const subId = Number(btn.getAttribute("data-sub"));
-      const newUrl = prompt("Новая ссылка на результат:");
-      if (!newUrl) return;
-      const newComment = prompt("Новый комментарий (необязательно):") || "";
+          const newUrl = prompt("Новая ссылка на результат:");
+          if (!newUrl) return;
 
-      const { error } = await supabase
-        .from("submissions")
-        .update({ result_url: newUrl, student_comment: newComment })
-        .eq("id", subId);
+          const newComment = prompt("Новый комментарий (необязательно):") || "";
 
-      if (error) alert("Ошибка обновления: " + error.message);
-      else {
-        alert("Обновлено");
-        location.reload();
-      }
-    });
-  });
-}
+          const { error } = await supabase
+            .from("submissions")
+            .update({ result_url: newUrl, student_comment: newComment })
+            .eq("id", subId);
 
-
-</script>
-    </body>
-  </html>
-  
+          if (error) alert("Ошибка обновления: " + error.message);
+          else {
+            alert("Обновлено");
+            location.reload();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
