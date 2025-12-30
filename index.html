@@ -1,4 +1,3 @@
-
   <!DOCTYPE html>
   <html lang="en">
     <head>
@@ -33,9 +32,217 @@
     else alert("Проверь почту — отправил ссылку для входа.");
   }
 
-  async function logout() {
-    await supabase.auth.signOut();
-    location.reload();
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function escapeAttr(str) {
+    return escapeHtml(str);
+  }
+
+  async function renderAdmin() {
+    const { data: allSubs, error } = await supabase
+      .from("submissions")
+      .select("id, task_id, user_id, result_url, student_comment, status, score, admin_comment, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      root.innerHTML = `<pre style="white-space:pre-wrap">Admin load error:\n${error.message}</pre>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div style="max-width:1000px;margin:50px auto;font-family:system-ui">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <h2 style="margin:0">Admin review</h2>
+            <div style="opacity:.8;margin-top:6px">Total submissions: ${(allSubs || []).length}</div>
+          </div>
+          <button id="logout">Logout</button>
+        </div>
+
+        <div style="margin-top:18px">
+          ${(allSubs || []).map(s => `
+            <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
+              <div style="font-weight:700">#${s.id} — ${s.status}</div>
+              <div style="opacity:.8;margin:6px 0">task_id: ${s.task_id} · user_id: ${s.user_id}</div>
+              ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Result link</a></div>` : ""}
+              ${s.student_comment ? `<div style="margin-top:6px">Student: ${escapeHtml(s.student_comment)}</div>` : ""}
+
+              <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <input class="score" data-id="${s.id}" placeholder="Score (0-100)" value="${s.score ?? ""}" style="width:140px;padding:8px"/>
+                <input class="acomment" data-id="${s.id}" placeholder="Admin comment" value="${escapeAttr(s.admin_comment ?? "")}" style="min-width:280px;flex:1;padding:8px"/>
+                <button class="mark-reviewed" data-id="${s.id}">Mark reviewed</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+
+    document.getElementById("logout").onclick = async () => {
+      await supabase.auth.signOut();
+      location.reload();
+    };
+
+    document.querySelectorAll(".mark-reviewed").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = Number(btn.getAttribute("data-id"));
+        const score = document.querySelector(`.score[data-id="${id}"]`).value.trim();
+        const adminComment = document.querySelector(`.acomment[data-id="${id}"]`).value.trim();
+
+        const payload = {
+          status: "reviewed",
+          score: score ? Number(score) : null,
+          admin_comment: adminComment || null
+        };
+
+        const { error } = await supabase
+          .from("submissions")
+          .update(payload)
+          .eq("id", id);
+
+        if (error) alert("Ошибка обновления: " + error.message);
+        else {
+          alert("Проверено");
+          location.reload();
+        }
+      });
+    });
+  }
+
+  async function renderStudent() {
+    const { data: subs, error: subsError } = await supabase
+      .from("submissions")
+      .select("id, task_id, result_url, student_comment, status, created_at")
+      .eq("user_id", user.id);
+
+    if (subsError) {
+      root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
+      return;
+    }
+
+    const { data: tasks, error: tasksError } = await supabase
+      .from("tasks")
+      .select("id, title, description, materials_url, sort_order")
+      .order("sort_order", { ascending: true });
+
+    if (tasksError) {
+      root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
+      return;
+    }
+
+    const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
+
+    const totalTasks = (tasks || []).length;
+    const reviewedTaskIds = new Set((subs || []).filter(s => s.status === "reviewed").map(s => s.task_id));
+    const reviewedCount = [...reviewedTaskIds].filter(id => (tasks || []).some(t => t.id === id)).length;
+    const progressPct = totalTasks === 0 ? 0 : Math.round((reviewedCount / totalTasks) * 100);
+
+    root.innerHTML = `
+      <div style="max-width:900px;margin:50px auto;font-family:system-ui">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
+          <div>
+            <h2 style="margin:0">Tasks</h2>
+            <div style="margin-top:8px;opacity:.85">
+              Reviewed: <b>${reviewedCount}</b> / <b>${totalTasks}</b> (${progressPct}%)
+            </div>
+            <div style="margin-top:8px;width:340px;max-width:60vw;background:#eee;border-radius:999px;height:10px;overflow:hidden">
+              <div style="height:10px;width:${progressPct}%;background:#111"></div>
+            </div>
+          </div>
+          <button id="logout">Logout</button>
+        </div>
+
+        <div style="margin-top:18px">
+          ${(tasks || []).map(t => {
+            const s = subByTaskId.get(t.id);
+
+            const statusPill = !s
+              ? `<span style="display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px;opacity:.8">Not submitted</span>`
+              : (s.status === "reviewed"
+                  ? `<span style="display:inline-block;padding:2px 8px;border:1px solid #111;border-radius:999px;font-size:12px">Reviewed</span>`
+                  : `<span style="display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px">Submitted</span>`);
+
+            const actionBlock = !s
+              ? `<div style="margin-top:10px"><button class="submit" data-task="${t.id}">Submit</button></div>`
+              : `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
+                   ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
+                   ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${escapeHtml(s.student_comment)}</div>` : ""}
+                   ${s.status === "reviewed"
+                      ? `<div style="margin-top:8px;opacity:.85">Checked by admin</div>`
+                      : `<div style="margin-top:8px"><button class="edit" data-sub="${s.id}">Edit</button></div>`
+                    }
+                 </div>`;
+
+            return `
+              <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
+                <div style="margin-bottom:8px">${statusPill}</div>
+                <div style="font-weight:700">${t.title}</div>
+                <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
+                ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
+                ${actionBlock}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+
+    document.getElementById("logout").onclick = async () => {
+      await supabase.auth.signOut();
+      location.reload();
+    };
+
+    // submit
+    document.querySelectorAll(".submit").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const taskId = Number(btn.getAttribute("data-task"));
+        const resultUrl = prompt("Вставь ссылку на результат (Figma/Notion/GDrive):");
+        if (!resultUrl) return;
+        const comment = prompt("Комментарий к выполнению (необязательно):") || "";
+
+        const { error } = await supabase.from("submissions").insert({
+          task_id: taskId,
+          user_id: user.id,
+          result_url: resultUrl,
+          student_comment: comment,
+          status: "submitted"
+        });
+
+        if (error) alert("Ошибка отправки: " + error.message);
+        else {
+          alert("Отправлено. Ожидает проверки админом.");
+          location.reload();
+        }
+      });
+    });
+
+    // edit (только для submitted; для reviewed мы выше убрали кнопку)
+    document.querySelectorAll(".edit").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const subId = Number(btn.getAttribute("data-sub"));
+        const newUrl = prompt("Новая ссылка на результат:");
+        if (!newUrl) return;
+        const newComment = prompt("Новый комментарий (необязательно):") || "";
+
+        const { error } = await supabase
+          .from("submissions")
+          .update({ result_url: newUrl, student_comment: newComment })
+          .eq("id", subId);
+
+        if (error) alert("Ошибка обновления: " + error.message);
+        else {
+          alert("Обновлено");
+          location.reload();
+        }
+      });
+    });
   }
 
   // 1) Проверяем пользователя
@@ -46,6 +253,25 @@
   }
 
   const user = userResp.user;
+
+  // 2) Если не залогинен — показываем форму
+  if (!user) {
+    root.innerHTML = `
+      <div style="max-width:420px;margin:60px auto;font-family:system-ui">
+        <h2>Login</h2>
+        <input id="email" placeholder="you@company.com" style="width:100%;padding:10px;margin:10px 0"/>
+        <button id="login" style="padding:10px 14px">Send magic link</button>
+      </div>
+    `;
+
+    document.getElementById("login").onclick = () => {
+      const email = document.getElementById("email").value.trim();
+      if (!email) return alert("Введите email");
+      login(email);
+    };
+
+    throw new Error("Not authenticated");
+  }
 
   // гарантируем, что профиль есть
   await supabase.from("profiles").upsert(
@@ -67,156 +293,11 @@
 
   const role = profile.role;
 
-  // 2) Если не залогинен — показываем форму
-  if (!user) {
-    root.innerHTML = `
-      <div style="max-width:420px;margin:60px auto;font-family:system-ui">
-        <h2>Login</h2>
-        <input id="email" placeholder="you@company.com" style="width:100%;padding:10px;margin:10px 0"/>
-        <button id="login" style="padding:10px 14px">Send magic link</button>
-      </div>
-    `;
-
-    document.getElementById("login").onclick = () => {
-      const email = document.getElementById("email").value.trim();
-      if (!email) return alert("Введите email");
-      login(email);
-    };
-
-    // Важно: дальше не идём
-    throw new Error("Not authenticated");
+  if (role === "admin") {
+    await renderAdmin();
+  } else {
+    await renderStudent();
   }
-
-  // 3) Загружаем мои submissions
-  const { data: subs, error: subsError } = await supabase
-    .from("submissions")
-    .select("id, task_id, result_url, student_comment, status, created_at")
-    .eq("user_id", user.id);
-
-  if (subsError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
-    throw subsError;
-  }
-
-  const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
-
-  // 4) Загружаем tasks
-  const { data: tasks, error: tasksError } = await supabase
-    .from("tasks")
-    .select("id, title, description, materials_url, sort_order")
-    .order("sort_order", { ascending: true });
-
-  if (tasksError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
-    throw tasksError;
-  }
-
-  const totalTasks = (tasks || []).length;
-
-  // уникальные task_id из submissions (если вдруг несколько записей на задачу)
-  const completedTaskIds = new Set((subs || []).map(s => s.task_id));
-  const completedCount = [...completedTaskIds].filter(id =>
-    (tasks || []).some(t => t.id === id)
-  ).length;
-
-  const progressPct = totalTasks === 0 ? 0 : Math.round((completedCount / totalTasks) * 100);
-
-  // 5) Рендер
-  root.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
-  <div>
-    <h2 style="margin:0">Tasks</h2>
-    <div style="margin-top:8px;opacity:.85">
-      Completed: <b>${completedCount}</b> / <b>${totalTasks}</b> (${progressPct}%)
-    </div>
-    <div style="margin-top:8px;width:340px;max-width:60vw;background:#eee;border-radius:999px;height:10px;overflow:hidden">
-      <div style="height:10px;width:${progressPct}%;background:#111"></div>
-    </div>
-  </div>
-
-  <button id="logout">Logout</button>
-</div>
-      <div style="margin-top:18px">
-        ${(tasks || []).map(t => {
-          const s = subByTaskId.get(t.id);
-
-          const statusBlock = !s
-            ? `<div style="margin-top:10px">
-                 <button class="submit" data-task="${t.id}">Submit</button>
-               </div>`
-            : `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
-                 <div style="font-weight:600">Submitted</div>
-                 ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
-                 ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${s.student_comment}</div>` : ""}
-                 <div style="margin-top:8px">
-                   <button class="edit" data-sub="${s.id}">Edit</button>
-                 </div>
-               </div>`;
-
-          return `
-            <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
-              <div style="font-weight:700">${t.title}</div>
-              <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
-              ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
-              ${statusBlock}
-            </div>
-          `;
-        }).join("")}
-      </div>
-    </div>
-  `;
-
-  document.getElementById("logout").onclick = logout;
-
-  // 6) Submit
-  document.querySelectorAll(".submit").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const taskId = Number(btn.getAttribute("data-task"));
-
-      const resultUrl = prompt("Вставь ссылку на результат (Figma/Notion/GDrive):");
-      if (!resultUrl) return;
-
-      const comment = prompt("Комментарий к выполнению (необязательно):") || "";
-
-      const { error } = await supabase.from("submissions").insert({
-        task_id: taskId,
-        user_id: user.id,
-        result_url: resultUrl,
-        student_comment: comment,
-        status: "submitted"
-      });
-
-      if (error) alert("Ошибка отправки: " + error.message);
-      else {
-        alert("Отправлено");
-        location.reload();
-      }
-    });
-  });
-
-  // 7) Edit
-  document.querySelectorAll(".edit").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const subId = Number(btn.getAttribute("data-sub"));
-
-      const newUrl = prompt("Новая ссылка на результат:");
-      if (!newUrl) return;
-
-      const newComment = prompt("Новый комментарий (необязательно):") || "";
-
-      const { error } = await supabase
-        .from("submissions")
-        .update({ result_url: newUrl, student_comment: newComment })
-        .eq("id", subId);
-
-      if (error) alert("Ошибка обновления: " + error.message);
-      else {
-        alert("Обновлено");
-        location.reload();
-      }
-    });
-  });
 </script>
     </body>
   </html>
-  
