@@ -119,7 +119,7 @@
   async function renderStudent() {
     const { data: subs, error: subsError } = await supabase
       .from("submissions")
-      .select("id, task_id, result_url, student_comment, status, created_at")
+      .select("id, task_id, result_url, student_comment, status, score, admin_comment, created_at")
       .eq("user_id", user.id);
 
     if (subsError) {
@@ -169,14 +169,39 @@
                   ? `<span style="display:inline-block;padding:2px 8px;border:1px solid #111;border-radius:999px;font-size:12px">Reviewed</span>`
                   : `<span style="display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px">Submitted</span>`);
 
+            const resultLink = s?.result_url
+              ? `<div><a href="${escapeAttr(s.result_url)}" target="_blank">Your result link</a></div>`
+              : "";
+            const commentLine = s?.student_comment
+              ? `<div style="opacity:.85;margin-top:6px">Comment: ${escapeHtml(s.student_comment)}</div>`
+              : "";
+            const adminCommentLine = s?.admin_comment
+              ? `<div style="opacity:.85;margin-top:6px">Admin comment: ${escapeHtml(s.admin_comment)}</div>`
+              : "";
+            const scoreLine = s?.score !== null && s?.score !== undefined
+              ? `<div style="opacity:.85;margin-top:6px">Score: ${s.score}</div>`
+              : "";
+
             const actionBlock = !s
-              ? `<div style="margin-top:10px"><button class="submit" data-task="${t.id}">Submit</button></div>`
+              ? `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
+                   <div style="display:flex;flex-direction:column;gap:8px">
+                     <input class="submit-url" data-task="${t.id}" type="url" placeholder="Result link" required style="padding:8px"/>
+                     <textarea class="submit-comment" data-task="${t.id}" placeholder="Comment (optional)" style="padding:8px;min-height:80px"></textarea>
+                     <button class="submit-btn" data-task="${t.id}">Submit</button>
+                   </div>
+                 </div>`
               : `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
-                   ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
-                   ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${escapeHtml(s.student_comment)}</div>` : ""}
+                   ${resultLink}
+                   ${commentLine}
                    ${s.status === "reviewed"
-                      ? `<div style="margin-top:8px;opacity:.85">Checked by admin</div>`
-                      : `<div style="margin-top:8px"><button class="edit" data-sub="${s.id}">Edit</button></div>`
+                      ? `<div style="margin-top:8px;opacity:.85">Checked by admin</div>
+                         ${adminCommentLine}
+                         ${scoreLine}`
+                      : `<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                           <input class="edit-url" data-sub="${s.id}" type="url" placeholder="Result link" value="${escapeAttr(s.result_url ?? "")}" required style="padding:8px"/>
+                           <textarea class="edit-comment" data-sub="${s.id}" placeholder="Comment (optional)" style="padding:8px;min-height:80px">${escapeHtml(s.student_comment ?? "")}</textarea>
+                           <button class="save-btn" data-sub="${s.id}">Save</button>
+                         </div>`
                     }
                  </div>`;
 
@@ -200,12 +225,14 @@
     };
 
     // submit
-    document.querySelectorAll(".submit").forEach(btn => {
+    document.querySelectorAll(".submit-btn").forEach(btn => {
       btn.addEventListener("click", async () => {
         const taskId = Number(btn.getAttribute("data-task"));
-        const resultUrl = prompt("Вставь ссылку на результат (Figma/Notion/GDrive):");
-        if (!resultUrl) return;
-        const comment = prompt("Комментарий к выполнению (необязательно):") || "";
+        const resultInput = document.querySelector(`.submit-url[data-task="${taskId}"]`);
+        const commentInput = document.querySelector(`.submit-comment[data-task="${taskId}"]`);
+        const resultUrl = resultInput?.value.trim() || "";
+        const comment = commentInput?.value.trim() || "";
+        if (!resultUrl) return alert("Добавьте ссылку на результат.");
 
         const { error } = await supabase.from("submissions").insert({
           task_id: taskId,
@@ -216,20 +243,19 @@
         });
 
         if (error) alert("Ошибка отправки: " + error.message);
-        else {
-          alert("Отправлено. Ожидает проверки админом.");
-          location.reload();
-        }
+        else location.reload();
       });
     });
 
     // edit (только для submitted; для reviewed мы выше убрали кнопку)
-    document.querySelectorAll(".edit").forEach(btn => {
+    document.querySelectorAll(".save-btn").forEach(btn => {
       btn.addEventListener("click", async () => {
         const subId = Number(btn.getAttribute("data-sub"));
-        const newUrl = prompt("Новая ссылка на результат:");
-        if (!newUrl) return;
-        const newComment = prompt("Новый комментарий (необязательно):") || "";
+        const resultInput = document.querySelector(`.edit-url[data-sub="${subId}"]`);
+        const commentInput = document.querySelector(`.edit-comment[data-sub="${subId}"]`);
+        const newUrl = resultInput?.value.trim() || "";
+        const newComment = commentInput?.value.trim() || "";
+        if (!newUrl) return alert("Добавьте ссылку на результат.");
 
         const { error } = await supabase
           .from("submissions")
@@ -237,10 +263,7 @@
           .eq("id", subId);
 
         if (error) alert("Ошибка обновления: " + error.message);
-        else {
-          alert("Обновлено");
-          location.reload();
-        }
+        else location.reload();
       });
     });
   }
