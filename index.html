@@ -227,12 +227,20 @@
     // submit
     document.querySelectorAll(".submit-btn").forEach(btn => {
       btn.addEventListener("click", async () => {
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
         const taskId = Number(btn.getAttribute("data-task"));
         const resultInput = document.querySelector(`.submit-url[data-task="${taskId}"]`);
         const commentInput = document.querySelector(`.submit-comment[data-task="${taskId}"]`);
         const resultUrl = resultInput?.value.trim() || "";
         const comment = commentInput?.value.trim() || "";
-        if (!resultUrl) return alert("Добавьте ссылку на результат.");
+        if (!resultUrl) {
+          alert("Добавьте ссылку на результат.");
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+          return;
+        }
 
         const { error } = await supabase.from("submissions").insert({
           task_id: taskId,
@@ -242,28 +250,50 @@
           status: "submitted"
         });
 
-        if (error) alert("Ошибка отправки: " + error.message);
-        else location.reload();
+        if (error) {
+          if (error.code === "23505" || /unique|duplicate/i.test(error.message)) {
+            alert("You already submitted this task. Please use Save to update your submission.");
+          } else {
+            alert("Ошибка отправки: " + error.message);
+          }
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        } else {
+          location.reload();
+        }
       });
     });
 
     // edit (только для submitted; для reviewed мы выше убрали кнопку)
     document.querySelectorAll(".save-btn").forEach(btn => {
       btn.addEventListener("click", async () => {
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Saving...";
         const subId = Number(btn.getAttribute("data-sub"));
         const resultInput = document.querySelector(`.edit-url[data-sub="${subId}"]`);
         const commentInput = document.querySelector(`.edit-comment[data-sub="${subId}"]`);
         const newUrl = resultInput?.value.trim() || "";
         const newComment = commentInput?.value.trim() || "";
-        if (!newUrl) return alert("Добавьте ссылку на результат.");
+        if (!newUrl) {
+          alert("Добавьте ссылку на результат.");
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+          return;
+        }
 
         const { error } = await supabase
           .from("submissions")
           .update({ result_url: newUrl, student_comment: newComment })
           .eq("id", subId);
 
-        if (error) alert("Ошибка обновления: " + error.message);
-        else location.reload();
+        if (error) {
+          alert("Ошибка обновления: " + error.message);
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        } else {
+          location.reload();
+        }
       });
     });
   }
