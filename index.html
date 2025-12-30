@@ -129,7 +129,7 @@
 
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
-      .select("id, title, description, materials_url, sort_order")
+      .select("id, title, description, materials, materials_url, sort_order")
       .order("sort_order", { ascending: true });
 
     if (tasksError) {
@@ -182,6 +182,21 @@
               ? `<div style="opacity:.85;margin-top:6px">Score: ${s.score}</div>`
               : "";
 
+            const materialsHtml = Array.isArray(t.materials) && t.materials.length > 0
+              ? `<div style="margin-top:8px">
+                   <div style="font-weight:600">Materials</div>
+                   <ul style="margin:6px 0 0 18px;padding:0">
+                     ${t.materials.map(item => {
+                       const title = escapeHtml(item?.title ?? "");
+                       const url = item?.url ? escapeAttr(item.url) : "";
+                       return url
+                         ? `<li><a href="${url}" target="_blank">${title}</a></li>`
+                         : `<li>${title}</li>`;
+                     }).join("")}
+                   </ul>
+                 </div>`
+              : (t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : "");
+
             const actionBlock = !s
               ? `<div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
                    <div style="display:flex;flex-direction:column;gap:8px">
@@ -210,7 +225,7 @@
                 <div style="margin-bottom:8px">${statusPill}</div>
                 <div style="font-weight:700">${t.title}</div>
                 <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
-                ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
+                ${materialsHtml}
                 ${actionBlock}
               </div>
             `;
