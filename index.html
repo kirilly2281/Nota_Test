@@ -91,6 +91,16 @@
     throw tasksError;
   }
 
+  const totalTasks = (tasks || []).length;
+
+  // уникальные task_id из submissions (если вдруг несколько записей на задачу)
+  const completedTaskIds = new Set((subs || []).map(s => s.task_id));
+  const completedCount = [...completedTaskIds].filter(id =>
+    (tasks || []).some(t => t.id === id)
+  ).length;
+
+  const progressPct = totalTasks === 0 ? 0 : Math.round((completedCount / totalTasks) * 100);
+
   // 5) Рендер
   root.innerHTML = `
     <div style="max-width:900px;margin:50px auto;font-family:system-ui">
