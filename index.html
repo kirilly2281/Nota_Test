@@ -46,6 +46,21 @@
     document.getElementById("login").onclick =
       () => login(document.getElementById("email").value.trim());
   } else {
+    const { data: { user } } = await supabase.auth.getUser();
+
+const { data: subs, error: subsError } = await supabase
+  .from("submissions")
+  .select("id, task_id, result_url, student_comment, status, created_at")
+  .eq("user_id", user.id);
+
+if (subsError) {
+  root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
+  return;
+}
+
+// Удобный “словарь”: task_id -> submission
+  const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
+
   // Загружаем задания из базы
   const { data: tasks, error } = await supabase
     .from("tasks")
@@ -69,15 +84,28 @@ ${error.message}
 
         <div style="margin-top:18px">
           ${(tasks || []).map(t => `
-            <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
-              <div style="font-weight:700">${t.title}</div>
-              <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
-              ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
-              ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
-              <div style="margin-top:10px">
-                <button class="submit" data-task="${t.id}">Submit</button>
-              </div>
-            </div>
+            ${(() => {
+  const s = subByTaskId.get(t.id);
+  if (!s) {
+    return `
+      <div style="margin-top:10px">
+        <button class="submit" data-task="${t.id}">Submit</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="margin-top:10px;padding:10px;border:1px dashed #bbb;border-radius:10px">
+      <div style="font-weight:600">Submitted</div>
+      ${s.result_url ? `<div><a href="${s.result_url}" target="_blank">Your result link</a></div>` : ""}
+      ${s.student_comment ? `<div style="opacity:.85;margin-top:6px">Comment: ${s.student_comment}</div>` : ""}
+      <div style="margin-top:8px">
+        <button class="edit" data-sub="${s.id}">Edit</button>
+      </div>
+    </div>
+  `;
+})()}
+
           `).join("")}
         </div>
       </div>
@@ -116,7 +144,29 @@ ${error.message}
       alert("Отправлено. Теперь админ сможет проверить.");
     }
   });
-}); 
+});
+    document.querySelectorAll(".edit").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const subId = Number(btn.getAttribute("data-sub"));
+
+    const newUrl = prompt("Новая ссылка на результат:");
+    if (!newUrl) return;
+
+    const newComment = prompt("Новый комментарий (необязательно):") || "";
+
+    const { error } = await supabase
+      .from("submissions")
+      .update({ result_url: newUrl, student_comment: newComment })
+      .eq("id", subId);
+
+    if (error) alert("Ошибка обновления: " + error.message);
+    else {
+      alert("Обновлено");
+      location.reload();
+    }
+  });
+});
+
   }
 }
 
