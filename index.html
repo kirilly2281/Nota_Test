@@ -44,27 +44,7 @@
       </div>`;
     document.getElementById("login").onclick =
       () => login(document.getElementById("email").value.trim());
-  } else {
-    root.innerHTML = `
-      <div style="max-width:420px;margin:60px auto">
-        const { data: { user } } = await supabase.auth.getUser();
-
-await supabase.from("profiles").upsert(
-  { id: user.id, name: user.email },
-  { onConflict: "id" }
-);
-
-const { data: profile, error } = await supabase
-  .from("profiles")
-  .select("id, name, role")
-  .eq("id", user.id)
-  .single();
-
-if (error) {
-  root.innerHTML = `<pre>${error.message}</pre>`;
-} else {
-  root.innerHTML = `
-    // 1) загрузить задания из базы
+  } // 1) загрузить задания из базы
 const { data: tasks, error: tasksError } = await supabase
   .from("tasks")
   .select("id, title, description, materials_url, sort_order")
@@ -110,9 +90,6 @@ if (tasksError) {
     });
   });
 }
-}
-        <p>${user.email}</p>
-      </div>`;
   }
 </script>
     </body>
