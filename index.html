@@ -246,13 +246,8 @@
   }
 
   // 1) Проверяем пользователя
-  const { data: userResp, error: userErr } = await supabase.auth.getUser();
-  if (userErr) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Auth error:\n${userErr.message}</pre>`;
-    throw userErr;
-  }
-
-  const user = userResp.user;
+  const { data: userResp } = await supabase.auth.getUser();
+  const user = userResp?.user || null;
 
   // 2) Если не залогинен — показываем форму
   if (!user) {
@@ -264,13 +259,20 @@
       </div>
     `;
 
-    document.getElementById("login").onclick = () => {
+    document.getElementById("login").onclick = async () => {
       const email = document.getElementById("email").value.trim();
       if (!email) return alert("Введите email");
-      login(email);
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: "https://kirilly2281.github.io/Nota_Test/" }
+      });
+
+      if (error) alert(error.message);
+      else alert("Проверь почту — отправил ссылку для входа.");
     };
 
-    throw new Error("Not authenticated");
+    return;
   }
 
   // гарантируем, что профиль есть
