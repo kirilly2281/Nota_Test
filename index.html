@@ -63,13 +63,53 @@ const { data: profile, error } = await supabase
 if (error) {
   root.innerHTML = `<pre>${error.message}</pre>`;
 } else {
+  // 1) загрузить задания из базы
+const { data: tasks, error: tasksError } = await supabase
+  .from("tasks")
+  .select("id, title, description, materials_url, sort_order")
+  .order("sort_order", { ascending: true });
+
+if (tasksError) {
+  root.innerHTML = `<pre>Tasks load error: ${tasksError.message}</pre>`;
+} else {
+  // 2) отрисовать список
   root.innerHTML = `
-    <div style="max-width:520px;margin:60px auto">
-      <h2>Logged in</h2>
-      <p>${profile.name}</p>
-      <p><b>Role:</b> ${profile.role}</p>
+    <div style="max-width:900px;margin:50px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Tasks</h2>
+        <button id="logout">Logout</button>
+      </div>
+
+      <div style="margin-top:18px">
+        ${(tasks || []).map(t => `
+          <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0">
+            <div style="font-weight:700">${t.title}</div>
+            <div style="opacity:.85;margin:6px 0">${t.description ?? ""}</div>
+            ${t.materials_url ? `<a href="${t.materials_url}" target="_blank">Materials</a>` : ""}
+            <div style="margin-top:10px">
+              <button data-task="${t.id}" class="submit">Submit result</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
     </div>
   `;
+
+  // logout
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  // пока просто проверим, что кнопки кликаются
+  document.querySelectorAll(".submit").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const taskId = btn.getAttribute("data-task");
+      alert("Submit for task #" + taskId + " (следующим шагом добавим форму сдачи)");
+    });
+  });
+}
+
 }
         <p>${user.email}</p>
       </div>`;
