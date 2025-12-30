@@ -271,34 +271,32 @@
       if (error) alert(error.message);
       else alert("Проверь почту — отправил ссылку для входа.");
     };
-
-    return;
-  }
-
-  // гарантируем, что профиль есть
-  await supabase.from("profiles").upsert(
-    { id: user.id, name: user.email },
-    { onConflict: "id" }
-  );
-
-  // читаем роль
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Profile load error:\n${profileError.message}</pre>`;
-    throw profileError;
-  }
-
-  const role = profile.role;
-
-  if (role === "admin") {
-    await renderAdmin();
   } else {
-    await renderStudent();
+    // гарантируем, что профиль есть
+    await supabase.from("profiles").upsert(
+      { id: user.id, name: user.email },
+      { onConflict: "id" }
+    );
+
+    // читаем роль
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError) {
+      root.innerHTML = `<pre style="white-space:pre-wrap">Profile load error:\n${profileError.message}</pre>`;
+      throw profileError;
+    }
+
+    const role = profile.role;
+
+    if (role === "admin") {
+      await renderAdmin();
+    } else {
+      await renderStudent();
+    }
   }
 </script>
     </body>
