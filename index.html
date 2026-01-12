@@ -342,15 +342,15 @@
   } else {
     // гарантируем, что профиль есть
     await supabase.from("profiles").upsert(
-      { id: user.id, name: user.email },
-      { onConflict: "id" }
+      { id: user.id, email: user.email, name: user.email },
+      { onConflict: "email" }
     );
 
     // читаем роль
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role")
-      .eq("id", user.id)
+      .select("id, role")
+      .eq("email", user.email)
       .single();
 
     if (profileError) {
