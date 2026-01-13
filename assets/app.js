@@ -7,6 +7,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const root = document.getElementById("root");
 root.innerHTML = "<p style='padding:20px'>Loading...</p>";
 
+// Глобальные переменные для навигации
+let currentUser = null;
+let currentRole = null;
+
 async function login(email) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
@@ -51,7 +55,10 @@ async function renderAdmin() {
           <h2 style="margin:0">Admin review</h2>
           <div style="opacity:.8;margin-top:6px">Total submissions: ${(allSubs || []).length}</div>
         </div>
-        <button id="logout">Logout</button>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
+          <button id="logout">Logout</button>
+        </div>
       </div>
 
       <div style="margin-top:18px">
@@ -76,6 +83,10 @@ async function renderAdmin() {
   document.getElementById("logout").onclick = async () => {
     await supabase.auth.signOut();
     location.reload();
+  };
+
+  document.getElementById("nav-assessment").onclick = async () => {
+    await renderAssessment();
   };
 
   document.querySelectorAll(".mark-reviewed").forEach(btn => {
@@ -108,7 +119,7 @@ async function renderStudent() {
   const { data: subs, error: subsError } = await supabase
     .from("submissions")
     .select("id, task_id, result_url, student_comment, status, score, admin_comment, created_at")
-    .eq("user_id", user.id);
+    .eq("user_id", currentUser.id);
 
   if (subsError) {
     root.innerHTML = `<pre style="white-space:pre-wrap">Submissions load error:\n${subsError.message}</pre>`;
@@ -144,7 +155,10 @@ async function renderStudent() {
             <div style="height:10px;width:${progressPct}%;background:#111"></div>
           </div>
         </div>
-        <button id="logout">Logout</button>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
+          <button id="logout">Logout</button>
+        </div>
       </div>
 
       <div style="margin-top:18px">
@@ -227,6 +241,10 @@ async function renderStudent() {
     location.reload();
   };
 
+  document.getElementById("nav-assessment").onclick = async () => {
+    await renderAssessment();
+  };
+
   // submit
   document.querySelectorAll(".submit-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -247,7 +265,7 @@ async function renderStudent() {
 
       const { error } = await supabase.from("submissions").insert({
         task_id: taskId,
-        user_id: user.id,
+        user_id: currentUser.id,
         result_url: resultUrl,
         student_comment: comment,
         status: "submitted"
@@ -301,9 +319,193 @@ async function renderStudent() {
   });
 }
 
+async function renderAssessment() {
+  // Загружаем категории компетенций
+  const { data: categories, error: categoriesError } = await supabase
+    .from("competency_categories")
+    .select("id, name, sort_order")
+    .order("sort_order", { ascending: true });
+
+  if (categoriesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Categories load error:\n${categoriesError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем компетенции
+  const { data: competencies, error: competenciesError } = await supabase
+    .from("competencies")
+    .select("id, category_id, name, description, sort_order")
+    .order("sort_order", { ascending: true });
+
+  if (competenciesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Competencies load error:\n${competenciesError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем рейтинги текущего пользователя
+  const { data: ratings, error: ratingsError } = await supabase
+    .from("competency_ratings")
+    .select("competency_id, self_score, self_comment, admin_score, admin_comment")
+    .eq("user_id", currentUser.id);
+
+  if (ratingsError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Ratings load error:\n${ratingsError.message}</pre>`;
+    return;
+  }
+
+  // Создаем Map для быстрого доступа к рейтингам
+  const ratingsMap = new Map((ratings || []).map(r => [r.competency_id, r]));
+
+  // Группируем компетенции по категориям
+  const competenciesByCategory = new Map();
+  (competencies || []).forEach(comp => {
+    if (!competenciesByCategory.has(comp.category_id)) {
+      competenciesByCategory.set(comp.category_id, []);
+    }
+    competenciesByCategory.get(comp.category_id).push(comp);
+  });
+
+  // Генерируем HTML таблицы
+  let tableHtml = "";
+  (categories || []).forEach(cat => {
+    const catCompetencies = competenciesByCategory.get(cat.id) || [];
+    if (catCompetencies.length === 0) return;
+
+    tableHtml += `
+      <div style="margin-bottom:32px">
+        <h3 style="margin:0 0 16px 0;font-size:18px;font-weight:600">${escapeHtml(cat.name)}</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">
+          <thead>
+            <tr style="background:#f5f5f5">
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Competency</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Description</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Self score</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Self comment</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Admin score</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Admin comment</th>
+              <th style="padding:12px;text-align:left;border:1px solid #ddd;font-weight:600">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${catCompetencies.map(comp => {
+              const rating = ratingsMap.get(comp.id);
+              const selfScore = rating?.self_score ?? "";
+              const selfComment = rating?.self_comment ?? "";
+              const adminScore = rating?.admin_score ?? "";
+              const adminComment = rating?.admin_comment ?? "";
+
+              return `
+                <tr>
+                  <td style="padding:12px;border:1px solid #ddd;font-weight:500">${escapeHtml(comp.name)}</td>
+                  <td style="padding:12px;border:1px solid #ddd;opacity:.85">${escapeHtml(comp.description ?? "")}</td>
+                  <td style="padding:12px;border:1px solid #ddd">
+                    <input type="number" class="self-score" data-competency="${comp.id}" 
+                           value="${selfScore}" min="0" max="100" 
+                           style="width:80px;padding:6px;border:1px solid #ccc;border-radius:4px" />
+                  </td>
+                  <td style="padding:12px;border:1px solid #ddd">
+                    <textarea class="self-comment" data-competency="${comp.id}" 
+                              style="width:100%;min-width:200px;padding:6px;border:1px solid #ccc;border-radius:4px;min-height:60px;resize:vertical">${escapeHtml(selfComment)}</textarea>
+                  </td>
+                  <td style="padding:12px;border:1px solid #ddd;opacity:.7">${adminScore || "-"}</td>
+                  <td style="padding:12px;border:1px solid #ddd;opacity:.7">${adminComment ? escapeHtml(adminComment) : "-"}</td>
+                  <td style="padding:12px;border:1px solid #ddd">
+                    <button class="save-competency" data-competency="${comp.id}" 
+                            style="padding:6px 12px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Save</button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  });
+
+  root.innerHTML = `
+    <div style="max-width:1400px;margin:50px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <h2 style="margin:0">Competency Assessment</h2>
+        <div style="display:flex;gap:10px;align-items:center">
+          ${currentRole === "admin" 
+            ? '<button id="nav-admin" style="padding:8px 12px">Admin review</button>' 
+            : '<button id="nav-tasks" style="padding:8px 12px">Tasks</button>'}
+          <button id="logout">Logout</button>
+        </div>
+      </div>
+
+      ${tableHtml || "<p>No competencies found.</p>"}
+    </div>
+  `;
+
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  if (currentRole === "admin") {
+    document.getElementById("nav-admin").onclick = async () => {
+      await renderAdmin();
+    };
+  } else {
+    document.getElementById("nav-tasks").onclick = async () => {
+      await renderStudent();
+    };
+  }
+
+  // Обработчики сохранения для каждой компетенции
+  document.querySelectorAll(".save-competency").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+
+      const competencyId = Number(btn.getAttribute("data-competency"));
+      const scoreInput = document.querySelector(`.self-score[data-competency="${competencyId}"]`);
+      const commentInput = document.querySelector(`.self-comment[data-competency="${competencyId}"]`);
+
+      const selfScore = scoreInput?.value.trim() ? Number(scoreInput.value.trim()) : null;
+      const selfComment = commentInput?.value.trim() || null;
+
+      // Валидация score
+      if (selfScore !== null && (selfScore < 0 || selfScore > 100)) {
+        alert("Score must be between 0 and 100");
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        competency_id: competencyId,
+        self_score: selfScore,
+        self_comment: selfComment,
+        self_updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from("competency_ratings")
+        .upsert(payload, { onConflict: "user_id,competency_id" });
+
+      if (error) {
+        alert("Ошибка сохранения: " + error.message);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      } else {
+        alert("Сохранено");
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        // Перезагружаем данные для обновления отображения
+        await renderAssessment();
+      }
+    });
+  });
+}
+
 // 1) Проверяем пользователя
 const { data: userResp } = await supabase.auth.getUser();
 const user = userResp?.user || null;
+currentUser = user;
 
 // 2) Если не залогинен — показываем форму
 if (!user) {
@@ -347,6 +549,7 @@ if (!user) {
   }
 
   const role = profile.role;
+  currentRole = role;
 
   if (role === "admin") {
     await renderAdmin();
