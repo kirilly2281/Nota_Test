@@ -57,6 +57,7 @@ async function renderAdmin() {
         </div>
         <div style="display:flex;gap:10px;align-items:center">
           <button id="nav-assessment" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Assessment</button>
+          <button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>
           <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
       </div>
@@ -89,6 +90,13 @@ async function renderAdmin() {
   if (navAssessmentBtn) {
     navAssessmentBtn.onclick = async () => {
       await renderAssessment();
+    };
+  }
+
+  const navManageCompetenciesBtn = document.getElementById("nav-manage-competencies");
+  if (navManageCompetenciesBtn) {
+    navManageCompetenciesBtn.onclick = async () => {
+      await renderAdminCompetencyManager();
     };
   }
 
@@ -326,10 +334,11 @@ async function renderStudent() {
 }
 
 async function renderAssessment() {
-  // Загружаем категории компетенций
+  // Загружаем категории компетенций (только активные)
   const { data: categories, error: categoriesError } = await supabase
     .from("competency_categories")
     .select("id, name, sort_order")
+    .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
   if (categoriesError) {
@@ -337,10 +346,11 @@ async function renderAssessment() {
     return;
   }
 
-  // Загружаем компетенции
+  // Загружаем компетенции (только активные)
   const { data: competencies, error: competenciesError } = await supabase
     .from("competencies")
     .select("id, category_id, name, description, sort_order")
+    .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
   if (competenciesError) {
@@ -434,7 +444,7 @@ async function renderAssessment() {
         <h2 style="margin:0">Competency Assessment</h2>
         <div style="display:flex;gap:10px;align-items:center">
           ${currentRole === "admin" 
-            ? '<button id="nav-admin" style="padding:8px 12px">Admin review</button>' 
+            ? '<button id="nav-admin" style="padding:8px 12px">Admin review</button><button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>' 
             : '<button id="nav-tasks" style="padding:8px 12px">Tasks</button>'}
           <button id="logout">Logout</button>
         </div>
@@ -453,6 +463,12 @@ async function renderAssessment() {
     document.getElementById("nav-admin").onclick = async () => {
       await renderAdmin();
     };
+    const navManageCompetenciesBtn = document.getElementById("nav-manage-competencies");
+    if (navManageCompetenciesBtn) {
+      navManageCompetenciesBtn.onclick = async () => {
+        await renderAdminCompetencyManager();
+      };
+    }
   } else {
     document.getElementById("nav-tasks").onclick = async () => {
       await renderStudent();
@@ -506,6 +522,334 @@ async function renderAssessment() {
       }
     });
   });
+}
+
+async function renderAdminCompetencyManager() {
+  // Загружаем категории
+  const { data: categories, error: categoriesError } = await supabase
+    .from("competency_categories")
+    .select("id, title, name, sort_order, is_active, created_at")
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (categoriesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Categories load error:\n${categoriesError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем компетенции
+  const { data: competencies, error: competenciesError } = await supabase
+    .from("competencies")
+    .select("id, category_id, title, name, description, sort_order, is_active, created_at")
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (competenciesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Competencies load error:\n${competenciesError.message}</pre>`;
+    return;
+  }
+
+  // Группируем компетенции по категориям
+  const competenciesByCategory = new Map();
+  (competencies || []).forEach(comp => {
+    if (!competenciesByCategory.has(comp.category_id)) {
+      competenciesByCategory.set(comp.category_id, []);
+    }
+    competenciesByCategory.get(comp.category_id).push(comp);
+  });
+
+  // Генерируем HTML для категорий
+  let categoriesHtml = "";
+  (categories || []).forEach((cat, catIndex) => {
+    const catCompetencies = competenciesByCategory.get(cat.id) || [];
+    const catTitle = cat.title || cat.name || "";
+    const isActive = cat.is_active !== false;
+
+    categoriesHtml += `
+      <div style="border:1px solid #ddd;padding:16px;border-radius:8px;margin-bottom:24px;background:${isActive ? "#fff" : "#f5f5f5"}">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <div style="flex:1">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" class="cat-title" data-id="${cat.id}" value="${escapeAttr(catTitle)}" 
+                     placeholder="Category title" required 
+                     style="padding:8px;border:1px solid #ccc;border-radius:4px;min-width:200px;flex:1"/>
+              <input type="number" class="cat-sort" data-id="${cat.id}" value="${cat.sort_order ?? 0}" 
+                     placeholder="Sort order" 
+                     style="padding:8px;border:1px solid #ccc;border-radius:4px;width:120px"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" class="cat-active" data-id="${cat.id}" ${isActive ? "checked" : ""} 
+                     style="cursor:pointer"/>
+              <span style="font-size:14px">Active</span>
+            </label>
+            <button class="cat-save" data-id="${cat.id}" 
+                    style="padding:6px 12px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Save</button>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee">
+          <div style="font-weight:600;margin-bottom:12px">Competencies</div>
+          ${catCompetencies.map(comp => {
+            const compTitle = comp.title || comp.name || "";
+            const compIsActive = comp.is_active !== false;
+            return `
+              <div style="padding:12px;background:${compIsActive ? "#fafafa" : "#f0f0f0"};border:1px solid #ddd;border-radius:6px;margin-bottom:8px">
+                <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+                  <div style="flex:1;min-width:200px">
+                    <input type="text" class="comp-title" data-id="${comp.id}" value="${escapeAttr(compTitle)}" 
+                           placeholder="Competency title" required 
+                           style="padding:6px;border:1px solid #ccc;border-radius:4px;width:100%;margin-bottom:8px"/>
+                    <textarea class="comp-desc" data-id="${comp.id}" placeholder="Description (optional)" 
+                              style="padding:6px;border:1px solid #ccc;border-radius:4px;width:100%;min-height:60px;resize:vertical">${escapeHtml(comp.description ?? "")}</textarea>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:8px;min-width:140px">
+                    <input type="number" class="comp-sort" data-id="${comp.id}" value="${comp.sort_order ?? 0}" 
+                           placeholder="Sort order" 
+                           style="padding:6px;border:1px solid #ccc;border-radius:4px;width:100%"/>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                      <input type="checkbox" class="comp-active" data-id="${comp.id}" ${compIsActive ? "checked" : ""} 
+                             style="cursor:pointer"/>
+                      <span style="font-size:13px">Active</span>
+                    </label>
+                    <button class="comp-save" data-id="${comp.id}" 
+                            style="padding:6px 12px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Save</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+
+          <div style="margin-top:12px;padding:12px;background:#f9f9f9;border:1px dashed #ccc;border-radius:6px">
+            <div style="font-weight:600;margin-bottom:8px">Add Competency</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+              <input type="text" class="new-comp-title" data-category="${cat.id}" placeholder="Title (required)" required 
+                     style="padding:6px;border:1px solid #ccc;border-radius:4px;min-width:200px;flex:1"/>
+              <textarea class="new-comp-desc" data-category="${cat.id}" placeholder="Description (optional)" 
+                        style="padding:6px;border:1px solid #ccc;border-radius:4px;min-width:200px;flex:1;min-height:60px;resize:vertical"></textarea>
+              <input type="number" class="new-comp-sort" data-category="${cat.id}" value="0" placeholder="Sort order" 
+                     style="padding:6px;border:1px solid #ccc;border-radius:4px;width:120px"/>
+              <button class="new-comp-add" data-category="${cat.id}" 
+                      style="padding:6px 12px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  root.innerHTML = `
+    <div style="max-width:1400px;margin:50px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <h2 style="margin:0">Manage Competencies</h2>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-admin" style="padding:8px 12px">Admin review</button>
+          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
+          <button id="logout">Logout</button>
+        </div>
+      </div>
+
+      <div id="message" style="margin-bottom:16px"></div>
+
+      <div style="margin-bottom:24px;padding:16px;background:#f0f7ff;border:1px solid #b3d9ff;border-radius:8px">
+        <div style="font-weight:600;margin-bottom:8px">Add Category</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="new-cat-title" placeholder="Category title (required)" required 
+                 style="padding:8px;border:1px solid #ccc;border-radius:4px;min-width:200px;flex:1"/>
+          <input type="number" id="new-cat-sort" value="0" placeholder="Sort order" 
+                 style="padding:8px;border:1px solid #ccc;border-radius:4px;width:120px"/>
+          <button id="new-cat-add" 
+                  style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer">Add Category</button>
+        </div>
+      </div>
+
+      ${categoriesHtml || "<p>No categories found.</p>"}
+    </div>
+  `;
+
+  // Навигация
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  document.getElementById("nav-admin").onclick = async () => {
+    await renderAdmin();
+  };
+
+  document.getElementById("nav-assessment").onclick = async () => {
+    await renderAssessment();
+  };
+
+  // Добавление категории
+  document.getElementById("new-cat-add").onclick = async () => {
+    const titleInput = document.getElementById("new-cat-title");
+    const sortInput = document.getElementById("new-cat-sort");
+    const title = titleInput.value.trim();
+    const sortOrder = parseInt(sortInput.value) || 0;
+
+    if (!title) {
+      showMessage("Title is required", "error");
+      return;
+    }
+
+    const payload = {
+      title: title,
+      name: title,
+      sort_order: sortOrder,
+      is_active: true
+    };
+
+    const { error } = await supabase
+      .from("competency_categories")
+      .insert(payload);
+
+    if (error) {
+      showMessage("Error: " + error.message, "error");
+    } else {
+      showMessage("Category added", "success");
+      titleInput.value = "";
+      sortInput.value = "0";
+      await renderAdminCompetencyManager();
+    }
+  };
+
+  // Сохранение категории
+  document.querySelectorAll(".cat-save").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const catId = Number(btn.getAttribute("data-id"));
+      const titleInput = document.querySelector(`.cat-title[data-id="${catId}"]`);
+      const sortInput = document.querySelector(`.cat-sort[data-id="${catId}"]`);
+      const activeCheckbox = document.querySelector(`.cat-active[data-id="${catId}"]`);
+
+      const title = titleInput.value.trim();
+      const sortOrder = parseInt(sortInput.value) || 0;
+      const isActive = activeCheckbox.checked;
+
+      if (!title) {
+        showMessage("Title is required", "error");
+        return;
+      }
+
+      const payload = {
+        title: title,
+        name: title,
+        sort_order: sortOrder,
+        is_active: isActive
+      };
+
+      const { error } = await supabase
+        .from("competency_categories")
+        .update(payload)
+        .eq("id", catId);
+
+      if (error) {
+        showMessage("Error: " + error.message, "error");
+      } else {
+        showMessage("Saved", "success");
+        await renderAdminCompetencyManager();
+      }
+    });
+  });
+
+  // Добавление компетенции
+  document.querySelectorAll(".new-comp-add").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const categoryId = Number(btn.getAttribute("data-category"));
+      const titleInput = document.querySelector(`.new-comp-title[data-category="${categoryId}"]`);
+      const descInput = document.querySelector(`.new-comp-desc[data-category="${categoryId}"]`);
+      const sortInput = document.querySelector(`.new-comp-sort[data-category="${categoryId}"]`);
+
+      const title = titleInput.value.trim();
+      const description = descInput.value.trim() || null;
+      const sortOrder = parseInt(sortInput.value) || 0;
+
+      if (!title) {
+        showMessage("Title is required", "error");
+        return;
+      }
+
+      const payload = {
+        category_id: categoryId,
+        title: title,
+        name: title,
+        description: description,
+        sort_order: sortOrder,
+        is_active: true
+      };
+
+      const { error } = await supabase
+        .from("competencies")
+        .insert(payload);
+
+      if (error) {
+        showMessage("Error: " + error.message, "error");
+      } else {
+        showMessage("Competency added", "success");
+        titleInput.value = "";
+        descInput.value = "";
+        sortInput.value = "0";
+        await renderAdminCompetencyManager();
+      }
+    });
+  });
+
+  // Сохранение компетенции
+  document.querySelectorAll(".comp-save").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const compId = Number(btn.getAttribute("data-id"));
+      const titleInput = document.querySelector(`.comp-title[data-id="${compId}"]`);
+      const descInput = document.querySelector(`.comp-desc[data-id="${compId}"]`);
+      const sortInput = document.querySelector(`.comp-sort[data-id="${compId}"]`);
+      const activeCheckbox = document.querySelector(`.comp-active[data-id="${compId}"]`);
+
+      const title = titleInput.value.trim();
+      const description = descInput.value.trim() || null;
+      const sortOrder = parseInt(sortInput.value) || 0;
+      const isActive = activeCheckbox.checked;
+
+      if (!title) {
+        showMessage("Title is required", "error");
+        return;
+      }
+
+      const payload = {
+        title: title,
+        name: title,
+        description: description,
+        sort_order: sortOrder,
+        is_active: isActive
+      };
+
+      const { error } = await supabase
+        .from("competencies")
+        .update(payload)
+        .eq("id", compId);
+
+      if (error) {
+        showMessage("Error: " + error.message, "error");
+      } else {
+        showMessage("Saved", "success");
+        await renderAdminCompetencyManager();
+      }
+    });
+  });
+}
+
+function showMessage(text, type) {
+  const messageEl = document.getElementById("message");
+  if (!messageEl) return;
+  
+  const bgColor = type === "error" ? "#fee" : "#efe";
+  const borderColor = type === "error" ? "#fcc" : "#cfc";
+  const textColor = type === "error" ? "#c00" : "#060";
+  
+  messageEl.innerHTML = `<div style="padding:12px;background:${bgColor};border:1px solid ${borderColor};border-radius:4px;color:${textColor}">${escapeHtml(text)}</div>`;
+  
+  setTimeout(() => {
+    messageEl.innerHTML = "";
+  }, 3000);
 }
 
 // 1) Проверяем пользователя
