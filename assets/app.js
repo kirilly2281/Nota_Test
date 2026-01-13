@@ -56,8 +56,8 @@ async function renderAdmin() {
           <div style="opacity:.8;margin-top:6px">Total submissions: ${(allSubs || []).length}</div>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
-          <button id="logout">Logout</button>
+          <button id="nav-assessment" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Assessment</button>
+          <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
       </div>
 
@@ -85,9 +85,12 @@ async function renderAdmin() {
     location.reload();
   };
 
-  document.getElementById("nav-assessment").onclick = async () => {
-    await renderAssessment();
-  };
+  const navAssessmentBtn = document.getElementById("nav-assessment");
+  if (navAssessmentBtn) {
+    navAssessmentBtn.onclick = async () => {
+      await renderAssessment();
+    };
+  }
 
   document.querySelectorAll(".mark-reviewed").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -156,8 +159,8 @@ async function renderStudent() {
           </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
-          <button id="logout">Logout</button>
+          <button id="nav-assessment" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Assessment</button>
+          <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
       </div>
 
@@ -241,9 +244,12 @@ async function renderStudent() {
     location.reload();
   };
 
-  document.getElementById("nav-assessment").onclick = async () => {
-    await renderAssessment();
-  };
+  const navAssessmentBtn = document.getElementById("nav-assessment");
+  if (navAssessmentBtn) {
+    navAssessmentBtn.onclick = async () => {
+      await renderAssessment();
+    };
+  }
 
   // submit
   document.querySelectorAll(".submit-btn").forEach(btn => {
