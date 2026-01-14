@@ -1463,20 +1463,23 @@ async function renderLogin() {
   };
 }
 
-// 1) Проверяем пользователя
-if (location.hash === "#reset") {
-  await renderResetPassword();
-  return;
-}
+async function route() {
+  // 1) Проверяем пользователя
+  if (location.hash === "#reset") {
+    await renderResetPassword();
+    return;
+  }
 
-const { data: userResp } = await supabase.auth.getUser();
-const user = userResp?.user || null;
-currentUser = user;
+  const { data: userResp } = await supabase.auth.getUser();
+  const user = userResp?.user || null;
+  currentUser = user;
 
-// 2) Если не залогинен — показываем форму
-if (!user) {
-  await renderLogin();
-} else {
+  // 2) Если не залогинен — показываем форму
+  if (!user) {
+    await renderLogin();
+    return;
+  }
+
   // гарантируем, что профиль есть
   await supabase.from("profiles").upsert(
     { id: user.id, email: user.email },
@@ -1512,3 +1515,5 @@ if (!user) {
     await renderStudent();
   }
 }
+
+await route();
