@@ -29,6 +29,190 @@ function isBlank(value) {
   return !value || String(value).trim().length === 0;
 }
 
+async function ensureProfile(user) {
+  const { data: existingProfile, error: profileLookupError } = await supabase
+    .from("profiles")
+    .select("id, email, role, name")
+    .or(`id.eq.${user.id},email.eq.${user.email}`)
+    .maybeSingle();
+
+  if (profileLookupError) {
+    throw new Error(`Profile lookup error: ${profileLookupError.message}`);
+  }
+
+  if (!existingProfile) {
+    const { error: profileUpsertError } = await supabase.from("profiles").upsert(
+      {
+        id: user.id,
+        email: user.email,
+        name: null,
+        role: "student"
+      },
+      { onConflict: "id" }
+    );
+
+    if (profileUpsertError) {
+      throw new Error(`Profile upsert error: ${profileUpsertError.message}`);
+    }
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, email, role, name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(`Profile fetch error: ${profileError.message}`);
+  }
+
+  if (!profile) {
+    throw new Error("Profile fetch error: profile not found.");
+  }
+
+  return profile;
+}
+
+function openNameModal(profile) {
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.className = "name-modal-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="name-modal-card" role="document">
+        <h2 class="name-modal-title">Как тебя называть?</h2>
+        <p class="name-modal-subtitle">Это имя увидят администраторы и другие участники.</p>
+        <div class="name-modal-field">
+          <label for="name-modal-input">Имя</label>
+          <input id="name-modal-input" type="text" placeholder="Например, Кирилл" maxlength="40" />
+          <div class="name-modal-error" id="name-modal-error"></div>
+        </div>
+        <div class="name-modal-actions">
+          <button class="secondary" id="name-modal-logout" type="button">Выйти</button>
+          <button class="primary" id="name-modal-save" type="button">Сохранить</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.classList.add("modal-open");
+
+    const input = overlay.querySelector("#name-modal-input");
+    const errorEl = overlay.querySelector("#name-modal-error");
+    const saveBtn = overlay.querySelector("#name-modal-save");
+    const logoutBtn = overlay.querySelector("#name-modal-logout");
+    const focusable = [input, logoutBtn, saveBtn];
+
+    const setError = message => {
+      errorEl.textContent = message || "";
+    };
+
+    const setLoading = isLoading => {
+      input.disabled = isLoading;
+      saveBtn.disabled = isLoading;
+      logoutBtn.disabled = isLoading;
+      saveBtn.textContent = isLoading ? "Сохранение..." : "Сохранить";
+    };
+
+    const closeModal = () => {
+      overlay.classList.remove("is-visible");
+      overlay.addEventListener(
+        "transitionend",
+        () => {
+          overlay.remove();
+          document.body.classList.remove("modal-open");
+        },
+        { once: true }
+      );
+    };
+
+    const handleSave = async () => {
+      const name = input.value.trim();
+      if (name.length < 2 || name.length > 40) {
+        setError("Имя должно быть длиной от 2 до 40 символов.");
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ name })
+        .eq("id", profile.id);
+
+      if (updateError) {
+        const readable = updateError.message || "Не удалось сохранить имя.";
+        setError(readable);
+        setLoading(false);
+        return;
+      }
+
+      const { data: updatedProfile, error: fetchError } = await supabase
+        .from("profiles")
+        .select("id, email, role, name")
+        .eq("id", profile.id)
+        .maybeSingle();
+
+      if (fetchError) {
+        setError(fetchError.message || "Не удалось загрузить профиль.");
+        setLoading(false);
+        return;
+      }
+
+      closeModal();
+      resolve(updatedProfile || { ...profile, name });
+    };
+
+    const handleLogout = async () => {
+      setLoading(true);
+      await supabase.auth.signOut();
+      closeModal();
+      reject(new Error("logout"));
+    };
+
+    overlay.addEventListener("click", event => {
+      if (event.target === overlay) {
+        input.focus();
+      }
+    });
+
+    overlay.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const currentIndex = focusable.indexOf(document.activeElement);
+        if (event.shiftKey) {
+          if (currentIndex <= 0) {
+            event.preventDefault();
+            focusable[focusable.length - 1].focus();
+          }
+        } else if (currentIndex === focusable.length - 1) {
+          event.preventDefault();
+          focusable[0].focus();
+        }
+      }
+    });
+
+    saveBtn.addEventListener("click", handleSave);
+    logoutBtn.addEventListener("click", handleLogout);
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        handleSave();
+      }
+    });
+
+    requestAnimationFrame(() => {
+      overlay.classList.add("is-visible");
+      input.focus();
+    });
+  });
+}
+
 async function renderAdmin() {
   const { data: allSubs, error } = await supabase
     .from("submissions")
@@ -116,55 +300,6 @@ async function renderAdmin() {
       }
     });
   });
-}
-
-async function renderProfileCompletion(profile) {
-  root.innerHTML = `
-    <div style="max-width:420px;margin:60px auto;font-family:system-ui">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="margin:0">Complete profile</h2>
-        <button id="logout" style="padding:6px 10px">Logout</button>
-      </div>
-      <div style="opacity:.75;margin-bottom:12px">Please add your name to continue.</div>
-      <label style="display:block;font-size:14px;margin-bottom:6px">Name</label>
-      <input id="profile-name" placeholder="Your name" style="width:100%;padding:10px;margin-bottom:12px"/>
-      <button id="save-profile" style="padding:10px 14px">Save</button>
-    </div>
-  `;
-
-  document.getElementById("logout").onclick = async () => {
-    await supabase.auth.signOut();
-    location.reload();
-  };
-
-  document.getElementById("save-profile").onclick = async () => {
-    const button = document.getElementById("save-profile");
-    const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = "Saving...";
-    const nameInput = document.getElementById("profile-name");
-    const name = nameInput.value.trim();
-    if (!name) {
-      alert("Введите имя.");
-      button.disabled = false;
-      button.textContent = originalText;
-      return;
-    }
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({ name })
-      .eq("id", profile.id);
-
-    if (error) {
-      alert("Ошибка сохранения: " + error.message);
-      button.disabled = false;
-      button.textContent = originalText;
-      return;
-    }
-
-    await renderStudent();
-  };
 }
 
 async function renderStudent() {
@@ -1375,48 +1510,29 @@ async function route() {
     return;
   }
 
-  const { data: existingProfile, error: profileLookupError } = await supabase
-    .from("profiles")
-    .select("id, role, name, email")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileLookupError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Profile lookup error:\n${profileLookupError.message}</pre>`;
+  // Ensure profile exists and collect required onboarding data.
+  let profile;
+  try {
+    profile = await ensureProfile(user);
+  } catch (error) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">${error.message}</pre>`;
     return;
   }
 
-  const role = existingProfile?.role || "student";
-  const name = existingProfile?.name || user.email || "";
-  const email = existingProfile?.email || user.email || "";
-
-  const { error: profileUpsertError } = await supabase.from("profiles").upsert(
-    {
-      id: user.id,
-      email,
-      name,
-      role
-    },
-    { onConflict: "id" }
-  );
-
-  if (profileUpsertError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Profile upsert error:\n${profileUpsertError.message}</pre>`;
-    return;
+  // Step 1 onboarding: enforce display name capture.
+  if (isBlank(profile?.name)) {
+    try {
+      profile = await openNameModal(profile);
+    } catch (error) {
+      await renderLogin();
+      return;
+    }
   }
 
-  // читаем роль
-  const profile = {
-    id: user.id,
-    role,
-    name
-  };
-  currentRole = role;
+  currentRole = profile?.role || "student";
 
-  if (role === "admin") {
+  if (currentRole === "admin") {
     await renderAdminStudents();
-  } else if (isBlank(profile.name)) {
-    await renderProfileCompletion(profile);
   } else {
     await renderStudent();
   }
