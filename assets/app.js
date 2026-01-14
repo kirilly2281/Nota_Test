@@ -138,13 +138,14 @@ async function renderStudent() {
   }
 
   let assignedTaskIds = [];
+  let assignmentsErrorMessage = null;
   const { data: assignments, error: assignmentsError } = await supabase
     .from("assignments")
     .select("task_id")
     .eq("user_id", currentUser.id);
 
   if (assignmentsError) {
-    console.error("Assignments load error:", assignmentsError.message);
+    assignmentsErrorMessage = assignmentsError.message;
     assignedTaskIds = [];
   } else {
     assignedTaskIds = (assignments || []).map(assignment => assignment.task_id);
@@ -191,6 +192,8 @@ async function renderStudent() {
           <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
       </div>
+
+      <div id="message" style="margin-top:12px"></div>
 
       <div style="margin-top:18px">
         ${tasks.length === 0
@@ -278,6 +281,10 @@ async function renderStudent() {
     await supabase.auth.signOut();
     location.reload();
   };
+
+  if (assignmentsErrorMessage) {
+    showMessage(`Assignments load error: ${assignmentsErrorMessage}`, "error");
+  }
 
   const navAssessmentBtn = document.getElementById("nav-assessment");
   if (navAssessmentBtn) {
@@ -732,30 +739,42 @@ async function renderAdminStudentDetail(studentId) {
     `;
   });
 
+  const assignedTasks = (tasks || []).filter(task => assignedTaskIds.has(task.id));
+
   // Генерируем HTML для задач
   let tasksHtml = "";
   if ((tasks || []).length > 0) {
     tasksHtml = `
       <div style="margin-top:32px;padding-top:32px;border-top:2px solid #ddd">
-        <h3 style="margin:0 0 16px 0;font-size:18px;font-weight:600">Assign Tasks</h3>
+        <h3 style="margin:0 0 16px 0;font-size:18px;font-weight:600">Assigned Tasks</h3>
         <div style="display:flex;flex-direction:column;gap:8px">
-          ${(tasks || []).map(t => {
-            const isAssigned = assignedTaskIds.has(t.id);
-            return `
-              <div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ddd;border-radius:6px">
-                <input type="checkbox" class="task-assign" data-task="${t.id}" ${isAssigned ? "checked" : ""} 
-                       style="cursor:pointer"/>
-                <div style="flex:1">
-                  <div style="font-weight:600">${escapeHtml(t.title)}</div>
-                  ${t.description ? `<div style="opacity:.8;font-size:14px;margin-top:4px">${escapeHtml(t.description)}</div>` : ""}
+          ${assignedTasks.length === 0
+            ? `<div style="border:1px dashed #ccc;padding:12px;border-radius:6px;opacity:.8">No tasks assigned yet.</div>`
+            : assignedTasks.map(t => `
+                <div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ddd;border-radius:6px">
+                  <div style="flex:1">
+                    <div style="font-weight:600">${escapeHtml(t.title)}</div>
+                    ${t.description ? `<div style="opacity:.8;font-size:14px;margin-top:4px">${escapeHtml(t.description)}</div>` : ""}
+                  </div>
+                  <button class="unassign-task" data-task="${t.id}" style="padding:6px 12px;background:#fff;border:1px solid #ccc;border-radius:4px;cursor:pointer">Unassign</button>
                 </div>
-              </div>
-            `;
-          }).join("")}
+              `).join("")}
         </div>
-        <button id="save-assignments" style="margin-top:16px;padding:10px 20px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">
-          Save Assignments
-        </button>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #eee">
+          <h4 style="margin:0 0 10px 0;font-size:16px;font-weight:600">Assign a task</h4>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <select id="assign-task-select" style="padding:8px;border:1px solid #ccc;border-radius:4px;min-width:240px">
+              <option value="">Select a task...</option>
+              ${(tasks || []).map(t => `
+                <option value="${t.id}">${escapeHtml(t.title)}</option>
+              `).join("")}
+            </select>
+            <button id="assign-task-btn" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">
+              Assign
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -847,42 +866,62 @@ async function renderAdminStudentDetail(studentId) {
     });
   });
 
-  // Сохранение назначений задач
-  const saveAssignmentsBtn = document.getElementById("save-assignments");
-  if (saveAssignmentsBtn) {
-    saveAssignmentsBtn.onclick = async () => {
-      const checkedTasks = Array.from(document.querySelectorAll(".task-assign:checked"))
-        .map(cb => Number(cb.getAttribute("data-task")));
-
-      // Удаляем все текущие назначения
-      const { error: deleteError } = await supabase
+  document.querySelectorAll(".unassign-task").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const taskId = Number(btn.getAttribute("data-task"));
+      const { error } = await supabase
         .from("assignments")
         .delete()
-        .eq("user_id", studentId);
+        .eq("user_id", studentId)
+        .eq("task_id", taskId);
 
-      if (deleteError) {
-        showMessage("Error: " + deleteError.message, "error");
+      if (error) {
+        showMessage("Error: " + error.message, "error");
         return;
       }
 
-      // Добавляем новые назначения
-      if (checkedTasks.length > 0) {
-        const newAssignments = checkedTasks.map(taskId => ({
-          user_id: studentId,
-          task_id: taskId
-        }));
+      showMessage("Task unassigned", "success");
+      await renderAdminStudentDetail(studentId);
+    });
+  });
 
-        const { error: insertError } = await supabase
-          .from("assignments")
-          .insert(newAssignments);
-
-        if (insertError) {
-          showMessage("Error: " + insertError.message, "error");
-          return;
-        }
+  const assignTaskBtn = document.getElementById("assign-task-btn");
+  if (assignTaskBtn) {
+    assignTaskBtn.onclick = async () => {
+      const selectEl = document.getElementById("assign-task-select");
+      const selectedValue = selectEl?.value || "";
+      if (!selectedValue) {
+        showMessage("Select a task to assign", "error");
+        return;
       }
 
-      showMessage("Assignments saved", "success");
+      const taskId = Number(selectedValue);
+      if (assignedTaskIds.has(taskId)) {
+        showMessage("Already assigned", "error");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("assignments")
+        .insert(
+          {
+            user_id: studentId,
+            task_id: taskId,
+            assigned_by: currentUser?.id ?? null
+          },
+          { onConflict: "user_id,task_id", ignoreDuplicates: true }
+        );
+
+      if (error) {
+        if (error.code === "23505" || /unique|duplicate/i.test(error.message)) {
+          showMessage("Already assigned", "error");
+        } else {
+          showMessage("Error: " + error.message, "error");
+        }
+        return;
+      }
+
+      showMessage("Task assigned", "success");
       await renderAdminStudentDetail(studentId);
     };
   }
