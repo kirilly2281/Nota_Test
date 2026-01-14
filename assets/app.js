@@ -150,25 +150,20 @@ async function renderStudent() {
     assignedTaskIds = (assignments || []).map(assignment => assignment.task_id);
   }
 
-  if (assignedTaskIds.length === 0) {
-    root.innerHTML = `
-      <div style="max-width:900px;margin:50px auto;font-family:system-ui">
-        <h2 style="margin:0">No tasks assigned yet</h2>
-        <div style="margin-top:8px;opacity:.8">Ask your admin to assign tasks</div>
-      </div>
-    `;
-    return;
-  }
+  let tasks = [];
+  if (assignedTaskIds.length > 0) {
+    const { data: tasksData, error: tasksError } = await supabase
+      .from("tasks")
+      .select("id, title, description, materials, materials_url, sort_order")
+      .in("id", assignedTaskIds)
+      .order("sort_order", { ascending: true });
 
-  const { data: tasks, error: tasksError } = await supabase
-    .from("tasks")
-    .select("id, title, description, materials, materials_url, sort_order")
-    .in("id", assignedTaskIds)
-    .order("sort_order", { ascending: true });
+    if (tasksError) {
+      root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
+      return;
+    }
 
-  if (tasksError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
-    return;
+    tasks = tasksData || [];
   }
 
   const subByTaskId = new Map((subs || []).map(s => [s.task_id, s]));
@@ -198,7 +193,14 @@ async function renderStudent() {
       </div>
 
       <div style="margin-top:18px">
-        ${(tasks || []).map(t => {
+        ${tasks.length === 0
+          ? `
+            <div style="border:1px solid #ddd;padding:16px;border-radius:12px">
+              <div style="font-weight:600">No tasks assigned yet</div>
+              <div style="margin-top:6px;opacity:.8">Ask your admin to assign tasks</div>
+            </div>
+          `
+          : tasks.map(t => {
           const s = subByTaskId.get(t.id);
 
           const statusPill = !s
