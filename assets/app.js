@@ -11,6 +11,15 @@ root.innerHTML = "<p style='padding:20px'>Loading...</p>";
 let currentUser = null;
 let currentRole = null;
 
+function getBaseUrlForRedirect() {
+  const origin = location.origin;
+  let path = location.pathname || "/";
+  if (!path.endsWith("/")) {
+    path = `${path}/`;
+  }
+  return `${origin}${path}`;
+}
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -1295,32 +1304,111 @@ function showMessage(text, type) {
   }, 3000);
 }
 
-// 1) Проверяем пользователя
-const { data: userResp } = await supabase.auth.getUser();
-const user = userResp?.user || null;
-currentUser = user;
+function setAuthMessage(text, type = "info") {
+  const messageEl = document.getElementById("auth-message");
+  if (!messageEl) return;
 
-// 2) Если не залогинен — показываем форму
-if (!user) {
+  const palette = {
+    error: { bg: "#fee", border: "#fcc", text: "#c00" },
+    success: { bg: "#efe", border: "#cfc", text: "#060" },
+    info: { bg: "#eef5ff", border: "#cfe3ff", text: "#114488" }
+  };
+  const colors = palette[type] || palette.info;
+  messageEl.innerHTML = `<div style="padding:12px;background:${colors.bg};border:1px solid ${colors.border};border-radius:4px;color:${colors.text}">${escapeHtml(text)}</div>`;
+}
+
+async function renderResetPassword() {
+  root.innerHTML = `
+    <div style="max-width:420px;margin:60px auto;font-family:system-ui">
+      <h2>Set new password</h2>
+      <label style="display:block;font-size:14px;margin:10px 0 6px">New password</label>
+      <input id="new-password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:10px"/>
+      <label style="display:block;font-size:14px;margin:10px 0 6px">Confirm password</label>
+      <input id="confirm-password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:16px"/>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button id="submit-reset" style="padding:10px 14px">Update password</button>
+        <button id="go-login" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;display:none">Go to login</button>
+      </div>
+      <div id="reset-status" style="margin-top:14px"></div>
+    </div>
+  `;
+
+  const statusEl = document.getElementById("reset-status");
+  const submitButton = document.getElementById("submit-reset");
+  const goLoginButton = document.getElementById("go-login");
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData?.session) {
+    statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Invalid or expired link. Request a new reset email.</div>`;
+    submitButton.disabled = true;
+  }
+
+  goLoginButton.onclick = async () => {
+    location.hash = "";
+    await renderLogin();
+  };
+
+  submitButton.onclick = async () => {
+    const password = document.getElementById("new-password").value.trim();
+    const confirm = document.getElementById("confirm-password").value.trim();
+
+    if (password.length < 6) {
+      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Password must be at least 6 characters.</div>`;
+      return;
+    }
+
+    if (password !== confirm) {
+      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Passwords do not match.</div>`;
+      return;
+    }
+
+    submitButton.disabled = true;
+    const originalText = submitButton.textContent;
+    submitButton.textContent = "Updating...";
+
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">${escapeHtml(error.message)}</div>`;
+      submitButton.disabled = false;
+      submitButton.textContent = originalText;
+      return;
+    }
+
+    statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Password updated. You can sign in now.</div>`;
+    goLoginButton.style.display = "inline-block";
+  };
+}
+
+async function renderLogin() {
   root.innerHTML = `
     <div style="max-width:420px;margin:60px auto;font-family:system-ui">
       <h2>Login</h2>
       <label style="display:block;font-size:14px;margin:10px 0 6px">Email</label>
       <input id="email" type="email" placeholder="you@company.com" style="width:100%;padding:10px;margin-bottom:10px"/>
       <label style="display:block;font-size:14px;margin:10px 0 6px">Password</label>
-      <input id="password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:16px"/>
+      <input id="password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:8px"/>
+      <div style="margin-bottom:16px">
+        <button id="forgot-password" style="padding:0;border:none;background:none;color:#0066cc;cursor:pointer">Forgot password / Set password</button>
+      </div>
       <div style="display:flex;gap:10px;align-items:center">
         <button id="sign-in" style="padding:10px 14px">Sign in</button>
         <button id="sign-up" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Sign up</button>
       </div>
+      <div id="auth-message" style="margin-top:14px"></div>
     </div>
   `;
 
   const runAuth = async (mode) => {
     const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value.trim();
-    if (!email) return alert("Введите email");
-    if (!password) return alert("Введите пароль");
+    if (!email) {
+      setAuthMessage("Введите email", "error");
+      return;
+    }
+    if (!password) {
+      setAuthMessage("Введите пароль", "error");
+      return;
+    }
 
     const buttonId = mode === "signin" ? "sign-in" : "sign-up";
     const button = document.getElementById(buttonId);
@@ -1333,7 +1421,12 @@ if (!user) {
       : await supabase.auth.signUp({ email, password });
 
     if (response.error) {
-      alert(response.error.message);
+      const message = response.error.message || "Authentication failed.";
+      if (mode === "signin" && message.toLowerCase().includes("invalid")) {
+        setAuthMessage(`${message} If your account was created with email link, click 'Set password' to create a password.`, "error");
+      } else {
+        setAuthMessage(message, "error");
+      }
       button.disabled = false;
       button.textContent = originalText;
       return;
@@ -1349,6 +1442,40 @@ if (!user) {
   document.getElementById("sign-up").onclick = async () => {
     await runAuth("signup");
   };
+
+  document.getElementById("forgot-password").onclick = async () => {
+    const email = document.getElementById("email").value.trim();
+    if (!email) {
+      setAuthMessage("Enter your email to receive the reset link.", "error");
+      return;
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${getBaseUrlForRedirect()}#reset`
+    });
+
+    if (error) {
+      setAuthMessage(error.message, "error");
+      return;
+    }
+
+    setAuthMessage("Email sent. Open the link to set a new password.", "success");
+  };
+}
+
+// 1) Проверяем пользователя
+if (location.hash === "#reset") {
+  await renderResetPassword();
+  return;
+}
+
+const { data: userResp } = await supabase.auth.getUser();
+const user = userResp?.user || null;
+currentUser = user;
+
+// 2) Если не залогинен — показываем форму
+if (!user) {
+  await renderLogin();
 } else {
   // гарантируем, что профиль есть
   await supabase.from("profiles").upsert(
