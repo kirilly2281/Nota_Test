@@ -3,6 +3,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bXZrYml4Znpsc3Vtdm16b3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMTA4ODMsImV4cCI6MjA4MjU4Njg4M30.hFW0Ndbs7STWlA294xe3lQqJ4Lj2mxFGGuQP-ncbnDY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const RESET_REDIRECT_URL = "https://kirilly2281.github.io/Nota_Test/?reset=1";
 
 const root = document.getElementById("root");
 root.innerHTML = "<p style='padding:20px'>Loading...</p>";
@@ -10,15 +11,6 @@ root.innerHTML = "<p style='padding:20px'>Loading...</p>";
 // Глобальные переменные для навигации
 let currentUser = null;
 let currentRole = null;
-
-function getBaseUrlForRedirect() {
-  const origin = location.origin;
-  let path = location.pathname || "/";
-  if (!path.endsWith("/")) {
-    path = `${path}/`;
-  }
-  return `${origin}${path}`;
-}
 
 function escapeHtml(str) {
   return String(str)
@@ -38,8 +30,12 @@ function isBlank(value) {
 }
 
 function isRecoveryRoute() {
-  const hashValue = location.hash.toLowerCase();
-  return hashValue.includes("reset") || hashValue.includes("type=recovery");
+  const searchParams = new URLSearchParams(location.search);
+  const hasRecoveryFlag = searchParams.get("reset") === "1";
+  const hasSupabaseCode = searchParams.has("code") || searchParams.has("error");
+  const hashParams = getHashParams();
+  const hasLegacyTokens = hashParams.has("access_token") || hashParams.has("refresh_token");
+  return hasRecoveryFlag || hasSupabaseCode || hasLegacyTokens;
 }
 
 function getHashParams() {
@@ -48,6 +44,13 @@ function getHashParams() {
 }
 
 async function establishRecoverySession() {
+  const searchParams = new URL(window.location.href).searchParams;
+  const code = searchParams.get("code");
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    return { session: data?.session || null, error };
+  }
+
   const hashParams = getHashParams();
   const accessToken = hashParams.get("access_token");
   const refreshToken = hashParams.get("refresh_token");
@@ -60,14 +63,18 @@ async function establishRecoverySession() {
     return { session: data?.session || null, error };
   }
 
-  const code = new URL(window.location.href).searchParams.get("code");
-  if (code) {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    return { session: data?.session || null, error };
-  }
+  return { session: null, error: null };
+}
 
-  const { data, error } = await supabase.auth.getSession();
-  return { session: data?.session || null, error };
+function clearRecoveryParams() {
+  const url = new URL(window.location.href);
+  const searchParams = url.searchParams;
+  ["reset", "code", "error", "error_description", "type"].forEach(param => {
+    searchParams.delete(param);
+  });
+  url.hash = "";
+  const cleaned = `${url.pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+  history.replaceState(null, "", cleaned);
 }
 
 async function renderAdmin() {
@@ -1363,25 +1370,36 @@ async function renderResetPassword() {
         <button id="go-login" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;display:none">Go to login</button>
       </div>
       <div id="reset-status" style="margin-top:14px"></div>
+      <div id="reset-request" style="margin-top:16px;display:none">
+        <div style="margin-bottom:10px;opacity:.8">Request a new reset link</div>
+        <label style="display:block;font-size:14px;margin:8px 0 6px">Email</label>
+        <input id="reset-email" type="email" placeholder="you@company.com" style="width:100%;padding:10px;margin-bottom:10px"/>
+        <button id="request-reset" style="padding:10px 14px">Send reset email</button>
+      </div>
     </div>
   `;
 
   const statusEl = document.getElementById("reset-status");
   const submitButton = document.getElementById("submit-reset");
   const goLoginButton = document.getElementById("go-login");
+  const requestSection = document.getElementById("reset-request");
+  const requestButton = document.getElementById("request-reset");
 
+  submitButton.disabled = true;
   statusEl.innerHTML = `<div style="padding:12px;background:#eef5ff;border:1px solid #cfe3ff;border-radius:4px;color:#114488">Checking recovery link...</div>`;
 
+  await supabase.auth.signOut();
   const { session, error: sessionError } = await establishRecoverySession();
   if (sessionError || !session) {
     statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Recovery link is invalid or expired. Request a new reset link.</div>`;
-    submitButton.disabled = true;
+    requestSection.style.display = "block";
   } else {
     statusEl.innerHTML = "";
+    submitButton.disabled = false;
   }
 
   goLoginButton.onclick = async () => {
-    location.hash = "";
+    clearRecoveryParams();
     await renderLogin();
   };
 
@@ -1414,9 +1432,36 @@ async function renderResetPassword() {
     statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Password updated. You can sign in now.</div>`;
     goLoginButton.style.display = "inline-block";
     setTimeout(async () => {
-      location.hash = "";
+      clearRecoveryParams();
       await renderLogin();
     }, 1200);
+  };
+
+  requestButton.onclick = async () => {
+    const email = document.getElementById("reset-email").value.trim();
+    if (!email) {
+      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Enter your email to receive the reset link.</div>`;
+      return;
+    }
+
+    requestButton.disabled = true;
+    const originalText = requestButton.textContent;
+    requestButton.textContent = "Sending...";
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: RESET_REDIRECT_URL
+    });
+
+    if (error) {
+      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">${escapeHtml(error.message)}</div>`;
+      requestButton.disabled = false;
+      requestButton.textContent = originalText;
+      return;
+    }
+
+    statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Email sent. Open the link to set a new password.</div>`;
+    requestButton.disabled = false;
+    requestButton.textContent = originalText;
   };
 }
 
@@ -1492,7 +1537,7 @@ async function renderLogin() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${getBaseUrlForRedirect()}#reset`
+      redirectTo: RESET_REDIRECT_URL
     });
 
     if (error) {
