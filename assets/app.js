@@ -3,12 +3,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bXZrYml4Znpsc3Vtdm16b3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMTA4ODMsImV4cCI6MjA4MjU4Njg4M30.hFW0Ndbs7STWlA294xe3lQqJ4Lj2mxFGGuQP-ncbnDY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const DEFAULT_BASE_PATH = "/Nota_Test/";
-const basePath = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-  ? "/"
-  : DEFAULT_BASE_PATH;
-const APP_BASE_URL = `${location.origin}${basePath}`;
-const RESET_REDIRECT_URL = `${APP_BASE_URL}?reset=1`;
+const MAGIC_LINK_REDIRECT_URL = "https://kirilly2281.github.io/Nota_Test/";
 
 const root = document.getElementById("root");
 root.innerHTML = "<p style='padding:20px'>Loading...</p>";
@@ -32,54 +27,6 @@ function escapeAttr(str) {
 
 function isBlank(value) {
   return !value || String(value).trim().length === 0;
-}
-
-function isRecoveryRoute() {
-  const searchParams = new URLSearchParams(location.search);
-  const hasRecoveryFlag = searchParams.get("reset") === "1";
-  const hasSupabaseCode = searchParams.has("code") || searchParams.has("error");
-  const hashParams = getHashParams();
-  const hasLegacyTokens = hashParams.has("access_token") || hashParams.has("refresh_token");
-  return hasRecoveryFlag || hasSupabaseCode || hasLegacyTokens;
-}
-
-function getHashParams() {
-  const hashValue = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
-  return new URLSearchParams(hashValue);
-}
-
-async function establishRecoverySession() {
-  const searchParams = new URL(window.location.href).searchParams;
-  const code = searchParams.get("code");
-  if (code) {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    return { session: data?.session || null, error };
-  }
-
-  const hashParams = getHashParams();
-  const accessToken = hashParams.get("access_token");
-  const refreshToken = hashParams.get("refresh_token");
-
-  if (accessToken && refreshToken) {
-    const { data, error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken
-    });
-    return { session: data?.session || null, error };
-  }
-
-  return { session: null, error: null };
-}
-
-function clearRecoveryParams() {
-  const url = new URL(window.location.href);
-  const searchParams = url.searchParams;
-  ["reset", "code", "error", "error_description", "type"].forEach(param => {
-    searchParams.delete(param);
-  });
-  url.hash = "";
-  const cleaned = `${url.pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
-  history.replaceState(null, "", cleaned);
 }
 
 async function renderAdmin() {
@@ -1362,221 +1309,64 @@ function setAuthMessage(text, type = "info") {
   messageEl.innerHTML = `<div style="padding:12px;background:${colors.bg};border:1px solid ${colors.border};border-radius:4px;color:${colors.text}">${escapeHtml(text)}</div>`;
 }
 
-async function renderResetPassword() {
-  root.innerHTML = `
-    <div style="max-width:420px;margin:60px auto;font-family:system-ui">
-      <h2>Set new password</h2>
-      <label style="display:block;font-size:14px;margin:10px 0 6px">New password</label>
-      <input id="new-password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:10px"/>
-      <label style="display:block;font-size:14px;margin:10px 0 6px">Confirm password</label>
-      <input id="confirm-password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:16px"/>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <button id="submit-reset" style="padding:10px 14px">Update password</button>
-        <button id="go-login" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;display:none">Go to login</button>
-      </div>
-      <div id="reset-status" style="margin-top:14px"></div>
-      <div id="reset-request" style="margin-top:16px;display:none">
-        <div style="margin-bottom:10px;opacity:.8">Request a new reset link</div>
-        <label style="display:block;font-size:14px;margin:8px 0 6px">Email</label>
-        <input id="reset-email" type="email" placeholder="you@company.com" style="width:100%;padding:10px;margin-bottom:10px"/>
-        <button id="request-reset" style="padding:10px 14px">Send reset email</button>
-      </div>
-    </div>
-  `;
-
-  const statusEl = document.getElementById("reset-status");
-  const submitButton = document.getElementById("submit-reset");
-  const goLoginButton = document.getElementById("go-login");
-  const requestSection = document.getElementById("reset-request");
-  const requestButton = document.getElementById("request-reset");
-
-  submitButton.disabled = true;
-  statusEl.innerHTML = `<div style="padding:12px;background:#eef5ff;border:1px solid #cfe3ff;border-radius:4px;color:#114488">Checking recovery link...</div>`;
-
-  await supabase.auth.signOut();
-  const { session, error: sessionError } = await establishRecoverySession();
-  if (sessionError || !session) {
-    statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Recovery link is invalid or expired. Request a new reset link.</div>`;
-    requestSection.style.display = "block";
-  } else {
-    statusEl.innerHTML = "";
-    submitButton.disabled = false;
-  }
-
-  goLoginButton.onclick = async () => {
-    clearRecoveryParams();
-    await renderLogin();
-  };
-
-  submitButton.onclick = async () => {
-    const password = document.getElementById("new-password").value.trim();
-    const confirm = document.getElementById("confirm-password").value.trim();
-
-    if (password.length < 6) {
-      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Password must be at least 6 characters.</div>`;
-      return;
-    }
-
-    if (password !== confirm) {
-      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Passwords do not match.</div>`;
-      return;
-    }
-
-    submitButton.disabled = true;
-    const originalText = submitButton.textContent;
-    submitButton.textContent = "Updating...";
-
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) {
-      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">${escapeHtml(error.message)}</div>`;
-      submitButton.disabled = false;
-      submitButton.textContent = originalText;
-      return;
-    }
-
-    statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Password updated. You can sign in now.</div>`;
-    goLoginButton.style.display = "inline-block";
-    setTimeout(async () => {
-      clearRecoveryParams();
-      await renderLogin();
-    }, 1200);
-  };
-
-  requestButton.onclick = async () => {
-    const email = document.getElementById("reset-email").value.trim();
-    if (!email) {
-      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Enter your email to receive the reset link.</div>`;
-      return;
-    }
-
-    requestButton.disabled = true;
-    const originalText = requestButton.textContent;
-    requestButton.textContent = "Sending...";
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: RESET_REDIRECT_URL
-    });
-
-    if (error) {
-      statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">${escapeHtml(error.message)}</div>`;
-      requestButton.disabled = false;
-      requestButton.textContent = originalText;
-      return;
-    }
-
-    statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Email sent. Open the link to set a new password.</div>`;
-    requestButton.disabled = false;
-    requestButton.textContent = originalText;
-  };
-}
-
 async function renderLogin() {
   root.innerHTML = `
     <div style="max-width:420px;margin:60px auto;font-family:system-ui">
       <h2>Login</h2>
       <label style="display:block;font-size:14px;margin:10px 0 6px">Email</label>
       <input id="email" type="email" placeholder="you@company.com" style="width:100%;padding:10px;margin-bottom:10px"/>
-      <label style="display:block;font-size:14px;margin:10px 0 6px">Password</label>
-      <input id="password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:8px"/>
-      <div style="margin-bottom:16px">
-        <button id="forgot-password" style="padding:0;border:none;background:none;color:#0066cc;cursor:pointer">Forgot password / Set password</button>
-      </div>
       <div style="display:flex;gap:10px;align-items:center">
-        <button id="sign-in" style="padding:10px 14px">Sign in</button>
-        <button id="sign-up" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Sign up</button>
+        <button id="send-link" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Send login link</button>
       </div>
       <div id="auth-message" style="margin-top:14px"></div>
     </div>
   `;
 
-  const runAuth = async (mode) => {
+  const sendMagicLink = async () => {
     const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value.trim();
     if (!email) {
       setAuthMessage("Введите email", "error");
       return;
     }
-    if (!password) {
-      setAuthMessage("Введите пароль", "error");
-      return;
-    }
 
-    const buttonId = mode === "signin" ? "sign-in" : "sign-up";
-    const button = document.getElementById(buttonId);
+    const button = document.getElementById("send-link");
     const originalText = button.textContent;
     button.disabled = true;
-    button.textContent = mode === "signin" ? "Signing in..." : "Signing up...";
+    button.textContent = "Sending...";
 
-    const response = mode === "signin"
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${APP_BASE_URL}`
-        }
-      });
-
-    if (response.error) {
-      const message = response.error.message || "Authentication failed.";
-      if (mode === "signin" && message.toLowerCase().includes("invalid")) {
-        setAuthMessage(`${message} If your account was created with email link, click 'Set password' to create a password.`, "error");
-      } else {
-        setAuthMessage(message, "error");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: MAGIC_LINK_REDIRECT_URL
       }
-      button.disabled = false;
-      button.textContent = originalText;
-      return;
-    }
-
-    if (mode === "signup") {
-      setAuthMessage("Проверьте почту и перейдите по ссылке для подтверждения.", "success");
-      button.disabled = false;
-      button.textContent = originalText;
-      document.getElementById("password").value = "";
-      return;
-    }
-
-    location.reload();
-  };
-
-  document.getElementById("sign-in").onclick = async () => {
-    await runAuth("signin");
-  };
-
-  document.getElementById("sign-up").onclick = async () => {
-    await runAuth("signup");
-  };
-
-  document.getElementById("forgot-password").onclick = async () => {
-    const email = document.getElementById("email").value.trim();
-    if (!email) {
-      setAuthMessage("Enter your email to receive the reset link.", "error");
-      return;
-    }
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: RESET_REDIRECT_URL
     });
 
     if (error) {
-      setAuthMessage(error.message, "error");
+      setAuthMessage(error.message || "Authentication failed.", "error");
+      button.disabled = false;
+      button.textContent = originalText;
       return;
     }
 
-    setAuthMessage("Email sent. Open the link to set a new password.", "success");
+    setAuthMessage("Check your email for the login link.", "success");
+    button.disabled = false;
+    button.textContent = originalText;
+  };
+
+  document.getElementById("send-link").onclick = async () => {
+    await sendMagicLink();
   };
 }
 
 async function route() {
-  // 1) Проверяем пользователя
-  if (isRecoveryRoute()) {
-    await renderResetPassword();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Session load error:\n${sessionError.message}</pre>`;
     return;
   }
 
-  const { data: userResp } = await supabase.auth.getUser();
-  const user = userResp?.user || null;
+  const session = sessionData?.session || null;
+  const user = session?.user || null;
   currentUser = user;
 
   // 2) Если не залогинен — показываем форму
@@ -1585,31 +1375,42 @@ async function route() {
     return;
   }
 
-  // гарантируем, что профиль есть
-  await supabase.from("profiles").upsert(
-    { id: user.id, email: user.email },
+  const { data: existingProfile, error: profileLookupError } = await supabase
+    .from("profiles")
+    .select("id, role, name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileLookupError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Profile lookup error:\n${profileLookupError.message}</pre>`;
+    return;
+  }
+
+  const role = existingProfile?.role || "student";
+  const name = existingProfile?.name || user.email || "";
+  const email = existingProfile?.email || user.email || "";
+
+  const { error: profileUpsertError } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      email,
+      name,
+      role
+    },
     { onConflict: "id" }
   );
 
+  if (profileUpsertError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Profile upsert error:\n${profileUpsertError.message}</pre>`;
+    return;
+  }
+
   // читаем роль
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, role, name")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError) {
-    root.innerHTML = `<pre style="white-space:pre-wrap">Profile load error:\n${profileError.message}</pre>`;
-    throw profileError;
-  }
-
-  const role = profile.role || "student";
-  if (!profile.role) {
-    await supabase
-      .from("profiles")
-      .update({ role })
-      .eq("id", profile.id);
-  }
+  const profile = {
+    id: user.id,
+    role,
+    name
+  };
   currentRole = role;
 
   if (role === "admin") {
