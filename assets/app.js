@@ -56,7 +56,7 @@ async function renderAdmin() {
           <div style="opacity:.8;margin-top:6px">Total submissions: ${(allSubs || []).length}</div>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <button id="nav-assessment" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Assessment</button>
+          <button id="nav-students" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Students</button>
           <button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>
           <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
@@ -86,10 +86,10 @@ async function renderAdmin() {
     location.reload();
   };
 
-  const navAssessmentBtn = document.getElementById("nav-assessment");
-  if (navAssessmentBtn) {
-    navAssessmentBtn.onclick = async () => {
-      await renderAssessment();
+  const navStudentsBtn = document.getElementById("nav-students");
+  if (navStudentsBtn) {
+    navStudentsBtn.onclick = async () => {
+      await renderAdminStudents();
     };
   }
 
@@ -140,6 +140,7 @@ async function renderStudent() {
   const { data: tasks, error: tasksError } = await supabase
     .from("tasks")
     .select("id, title, description, materials, materials_url, sort_order")
+    .in("id", Array.from(assignedTaskIds))
     .order("sort_order", { ascending: true });
 
   if (tasksError) {
@@ -167,6 +168,7 @@ async function renderStudent() {
           </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-tasks" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Tasks</button>
           <button id="nav-assessment" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Assessment</button>
           <button id="logout" style="padding:8px 12px">Logout</button>
         </div>
@@ -334,6 +336,12 @@ async function renderStudent() {
 }
 
 async function renderAssessment() {
+  // Редирект для админов
+  if (currentRole === "admin") {
+    await renderAdminStudents();
+    return;
+  }
+
   // Загружаем категории компетенций (только активные)
   const { data: categories, error: categoriesError } = await supabase
     .from("competency_categories")
@@ -443,9 +451,7 @@ async function renderAssessment() {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
         <h2 style="margin:0">Competency Assessment</h2>
         <div style="display:flex;gap:10px;align-items:center">
-          ${currentRole === "admin" 
-            ? '<button id="nav-admin" style="padding:8px 12px">Admin review</button><button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>' 
-            : '<button id="nav-tasks" style="padding:8px 12px">Tasks</button>'}
+          <button id="nav-tasks" style="padding:8px 12px">Tasks</button>
           <button id="logout">Logout</button>
         </div>
       </div>
@@ -459,21 +465,9 @@ async function renderAssessment() {
     location.reload();
   };
 
-  if (currentRole === "admin") {
-    document.getElementById("nav-admin").onclick = async () => {
-      await renderAdmin();
-    };
-    const navManageCompetenciesBtn = document.getElementById("nav-manage-competencies");
-    if (navManageCompetenciesBtn) {
-      navManageCompetenciesBtn.onclick = async () => {
-        await renderAdminCompetencyManager();
-      };
-    }
-  } else {
-    document.getElementById("nav-tasks").onclick = async () => {
-      await renderStudent();
-    };
-  }
+  document.getElementById("nav-tasks").onclick = async () => {
+    await renderStudent();
+  };
 
   // Обработчики сохранения для каждой компетенции
   document.querySelectorAll(".save-competency").forEach(btn => {
@@ -522,6 +516,351 @@ async function renderAssessment() {
       }
     });
   });
+}
+
+async function renderAdminStudents() {
+  // Загружаем всех студентов (не админов)
+  const { data: students, error: studentsError } = await supabase
+    .from("profiles")
+    .select("id, email, name, role")
+    .eq("role", "student")
+    .order("email", { ascending: true });
+
+  if (studentsError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Students load error:\n${studentsError.message}</pre>`;
+    return;
+  }
+
+  root.innerHTML = `
+    <div style="max-width:1200px;margin:50px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <h2 style="margin:0">Students</h2>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>
+          <button id="logout" style="padding:8px 12px">Logout</button>
+        </div>
+      </div>
+
+      <div style="margin-top:18px">
+        ${(students || []).length === 0 
+          ? "<p>No students found.</p>"
+          : (students || []).map(s => `
+            <div style="border:1px solid #ddd;padding:14px;border-radius:12px;margin:12px 0;cursor:pointer" 
+                 class="student-row" data-student-id="${s.id}">
+              <div style="font-weight:700">${escapeHtml(s.name || s.email)}</div>
+              <div style="opacity:.8;margin-top:4px;font-size:14px">${escapeHtml(s.email)}</div>
+            </div>
+          `).join("")}
+      </div>
+    </div>
+  `;
+
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  document.getElementById("nav-manage-competencies").onclick = async () => {
+    await renderAdminCompetencyManager();
+  };
+
+  // Обработчики клика на студента
+  document.querySelectorAll(".student-row").forEach(row => {
+    row.addEventListener("click", async () => {
+      const studentId = row.getAttribute("data-student-id");
+      await renderAdminStudentDetail(studentId);
+    });
+  });
+}
+
+async function renderAdminStudentDetail(studentId) {
+  // Загружаем данные студента
+  const { data: student, error: studentError } = await supabase
+    .from("profiles")
+    .select("id, email, name")
+    .eq("id", studentId)
+    .single();
+
+  if (studentError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Student load error:\n${studentError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем рейтинги компетенций студента
+  const { data: ratings, error: ratingsError } = await supabase
+    .from("competency_ratings")
+    .select("competency_id, self_score, self_comment, admin_score, admin_comment")
+    .eq("user_id", studentId);
+
+  if (ratingsError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Ratings load error:\n${ratingsError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем категории и компетенции
+  const { data: categories, error: categoriesError } = await supabase
+    .from("competency_categories")
+    .select("id, name, title, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (categoriesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Categories load error:\n${categoriesError.message}</pre>`;
+    return;
+  }
+
+  const { data: competencies, error: competenciesError } = await supabase
+    .from("competencies")
+    .select("id, category_id, name, title, description, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (competenciesError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Competencies load error:\n${competenciesError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем задачи
+  const { data: tasks, error: tasksError } = await supabase
+    .from("tasks")
+    .select("id, title, description, sort_order")
+    .order("sort_order", { ascending: true });
+
+  if (tasksError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Tasks load error:\n${tasksError.message}</pre>`;
+    return;
+  }
+
+  // Загружаем назначенные задачи студенту
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("assignments")
+    .select("task_id")
+    .eq("user_id", studentId);
+
+  if (assignmentsError) {
+    root.innerHTML = `<pre style="white-space:pre-wrap">Assignments load error:\n${assignmentsError.message}</pre>`;
+    return;
+  }
+
+  const assignedTaskIds = new Set((assignments || []).map(a => a.task_id));
+
+  // Группируем компетенции по категориям
+  const competenciesByCategory = new Map();
+  (competencies || []).forEach(comp => {
+    if (!competenciesByCategory.has(comp.category_id)) {
+      competenciesByCategory.set(comp.category_id, []);
+    }
+    competenciesByCategory.get(comp.category_id).push(comp);
+  });
+
+  const ratingsMap = new Map((ratings || []).map(r => [r.competency_id, r]));
+
+  // Генерируем HTML для компетенций
+  let competenciesHtml = "";
+  (categories || []).forEach(cat => {
+    const catCompetencies = competenciesByCategory.get(cat.id) || [];
+    if (catCompetencies.length === 0) return;
+
+    const catName = cat.name || cat.title || "";
+    competenciesHtml += `
+      <div style="margin-bottom:24px">
+        <h3 style="margin:0 0 12px 0;font-size:16px;font-weight:600">${escapeHtml(catName)}</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">
+          <thead>
+            <tr style="background:#f5f5f5">
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Competency</th>
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Self score</th>
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Self comment</th>
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Admin score</th>
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Admin comment</th>
+              <th style="padding:10px;text-align:left;border:1px solid #ddd;font-weight:600">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${catCompetencies.map(comp => {
+              const rating = ratingsMap.get(comp.id);
+              const compName = comp.name || comp.title || "";
+              return `
+                <tr>
+                  <td style="padding:10px;border:1px solid #ddd">${escapeHtml(compName)}</td>
+                  <td style="padding:10px;border:1px solid #ddd;opacity:.7">${rating?.self_score ?? "-"}</td>
+                  <td style="padding:10px;border:1px solid #ddd;opacity:.7;max-width:200px">${rating?.self_comment ? escapeHtml(rating.self_comment) : "-"}</td>
+                  <td style="padding:10px;border:1px solid #ddd">
+                    <input type="number" class="admin-score" data-competency="${comp.id}" 
+                           value="${rating?.admin_score ?? ""}" min="0" max="100" 
+                           style="width:80px;padding:6px;border:1px solid #ccc;border-radius:4px" />
+                  </td>
+                  <td style="padding:10px;border:1px solid #ddd">
+                    <textarea class="admin-comment" data-competency="${comp.id}" 
+                              style="width:100%;min-width:200px;padding:6px;border:1px solid #ccc;border-radius:4px;min-height:50px;resize:vertical">${escapeHtml(rating?.admin_comment ?? "")}</textarea>
+                  </td>
+                  <td style="padding:10px;border:1px solid #ddd">
+                    <button class="save-rating" data-competency="${comp.id}" 
+                            style="padding:6px 12px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Save</button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  });
+
+  // Генерируем HTML для задач
+  let tasksHtml = "";
+  if ((tasks || []).length > 0) {
+    tasksHtml = `
+      <div style="margin-top:32px;padding-top:32px;border-top:2px solid #ddd">
+        <h3 style="margin:0 0 16px 0;font-size:18px;font-weight:600">Assign Tasks</h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${(tasks || []).map(t => {
+            const isAssigned = assignedTaskIds.has(t.id);
+            return `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ddd;border-radius:6px">
+                <input type="checkbox" class="task-assign" data-task="${t.id}" ${isAssigned ? "checked" : ""} 
+                       style="cursor:pointer"/>
+                <div style="flex:1">
+                  <div style="font-weight:600">${escapeHtml(t.title)}</div>
+                  ${t.description ? `<div style="opacity:.8;font-size:14px;margin-top:4px">${escapeHtml(t.description)}</div>` : ""}
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+        <button id="save-assignments" style="margin-top:16px;padding:10px 20px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">
+          Save Assignments
+        </button>
+      </div>
+    `;
+  }
+
+  root.innerHTML = `
+    <div style="max-width:1400px;margin:50px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div>
+          <button id="back-to-students" style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;cursor:pointer;margin-bottom:12px">← Back to Students</button>
+          <h2 style="margin:0">${escapeHtml(student.name || student.email)}</h2>
+          <div style="opacity:.8;margin-top:4px;font-size:14px">${escapeHtml(student.email)}</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="nav-students" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Students</button>
+          <button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>
+          <button id="logout" style="padding:8px 12px">Logout</button>
+        </div>
+      </div>
+
+      <div id="message" style="margin-bottom:16px"></div>
+
+      <div>
+        <h3 style="margin:0 0 16px 0;font-size:18px;font-weight:600">Competency Assessment</h3>
+        ${competenciesHtml || "<p>No competencies found.</p>"}
+      </div>
+
+      ${tasksHtml}
+    </div>
+  `;
+
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  document.getElementById("back-to-students").onclick = async () => {
+    await renderAdminStudents();
+  };
+
+  document.getElementById("nav-students").onclick = async () => {
+    await renderAdminStudents();
+  };
+
+  document.getElementById("nav-manage-competencies").onclick = async () => {
+    await renderAdminCompetencyManager();
+  };
+
+  // Сохранение рейтингов компетенций
+  document.querySelectorAll(".save-rating").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const competencyId = Number(btn.getAttribute("data-competency"));
+      const scoreInput = document.querySelector(`.admin-score[data-competency="${competencyId}"]`);
+      const commentInput = document.querySelector(`.admin-comment[data-competency="${competencyId}"]`);
+
+      const adminScore = scoreInput?.value.trim() ? Number(scoreInput.value.trim()) : null;
+      const adminComment = commentInput?.value.trim() || null;
+
+      if (adminScore !== null && (adminScore < 0 || adminScore > 100)) {
+        showMessage("Score must be between 0 and 100", "error");
+        return;
+      }
+
+      // Получаем текущий рейтинг или создаем новый
+      const existingRating = ratingsMap.get(competencyId);
+      const payload = {
+        user_id: studentId,
+        competency_id: competencyId,
+        admin_score: adminScore,
+        admin_comment: adminComment,
+        admin_updated_at: new Date().toISOString()
+      };
+
+      // Если есть self_score или self_comment, сохраняем их тоже
+      if (existingRating) {
+        payload.self_score = existingRating.self_score;
+        payload.self_comment = existingRating.self_comment;
+      }
+
+      const { error } = await supabase
+        .from("competency_ratings")
+        .upsert(payload, { onConflict: "user_id,competency_id" });
+
+      if (error) {
+        showMessage("Error: " + error.message, "error");
+      } else {
+        showMessage("Saved", "success");
+        await renderAdminStudentDetail(studentId);
+      }
+    });
+  });
+
+  // Сохранение назначений задач
+  const saveAssignmentsBtn = document.getElementById("save-assignments");
+  if (saveAssignmentsBtn) {
+    saveAssignmentsBtn.onclick = async () => {
+      const checkedTasks = Array.from(document.querySelectorAll(".task-assign:checked"))
+        .map(cb => Number(cb.getAttribute("data-task")));
+
+      // Удаляем все текущие назначения
+      const { error: deleteError } = await supabase
+        .from("assignments")
+        .delete()
+        .eq("user_id", studentId);
+
+      if (deleteError) {
+        showMessage("Error: " + deleteError.message, "error");
+        return;
+      }
+
+      // Добавляем новые назначения
+      if (checkedTasks.length > 0) {
+        const newAssignments = checkedTasks.map(taskId => ({
+          user_id: studentId,
+          task_id: taskId
+        }));
+
+        const { error: insertError } = await supabase
+          .from("assignments")
+          .insert(newAssignments);
+
+        if (insertError) {
+          showMessage("Error: " + insertError.message, "error");
+          return;
+        }
+      }
+
+      showMessage("Assignments saved", "success");
+      await renderAdminStudentDetail(studentId);
+    };
+  }
 }
 
 async function renderAdminCompetencyManager() {
@@ -644,8 +983,8 @@ async function renderAdminCompetencyManager() {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
         <h2 style="margin:0">Manage Competencies</h2>
         <div style="display:flex;gap:10px;align-items:center">
-          <button id="nav-admin" style="padding:8px 12px">Admin review</button>
-          <button id="nav-assessment" style="padding:8px 12px">Assessment</button>
+          <button id="nav-students" style="padding:8px 16px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Students</button>
+          <button id="nav-manage-competencies" style="padding:8px 16px;background:#0066cc;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:500">Manage competencies</button>
           <button id="logout">Logout</button>
         </div>
       </div>
@@ -674,12 +1013,12 @@ async function renderAdminCompetencyManager() {
     location.reload();
   };
 
-  document.getElementById("nav-admin").onclick = async () => {
-    await renderAdmin();
+  document.getElementById("nav-students").onclick = async () => {
+    await renderAdminStudents();
   };
 
-  document.getElementById("nav-assessment").onclick = async () => {
-    await renderAssessment();
+  document.getElementById("nav-manage-competencies").onclick = async () => {
+    await renderAdminCompetencyManager();
   };
 
   // Добавление категории
@@ -902,7 +1241,7 @@ if (!user) {
   currentRole = role;
 
   if (role === "admin") {
-    await renderAdmin();
+    await renderAdminStudents();
   } else {
     await renderStudent();
   }
