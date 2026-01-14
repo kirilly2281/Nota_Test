@@ -11,19 +11,6 @@ root.innerHTML = "<p style='padding:20px'>Loading...</p>";
 let currentUser = null;
 let currentRole = null;
 
-async function login(email) {
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      // Жёстко укажите ваш Pages URL, чтобы не улетать на корень домена
-      emailRedirectTo: "https://kirilly2281.github.io/Nota_Test/"
-    }
-  });
-
-  if (error) alert(error.message);
-  else alert("Проверь почту — отправил ссылку для входа.");
-}
-
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -35,6 +22,10 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
   return escapeHtml(str);
+}
+
+function isBlank(value) {
+  return !value || String(value).trim().length === 0;
 }
 
 async function renderAdmin() {
@@ -124,6 +115,55 @@ async function renderAdmin() {
       }
     });
   });
+}
+
+async function renderProfileCompletion(profile) {
+  root.innerHTML = `
+    <div style="max-width:420px;margin:60px auto;font-family:system-ui">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">Complete profile</h2>
+        <button id="logout" style="padding:6px 10px">Logout</button>
+      </div>
+      <div style="opacity:.75;margin-bottom:12px">Please add your name to continue.</div>
+      <label style="display:block;font-size:14px;margin-bottom:6px">Name</label>
+      <input id="profile-name" placeholder="Your name" style="width:100%;padding:10px;margin-bottom:12px"/>
+      <button id="save-profile" style="padding:10px 14px">Save</button>
+    </div>
+  `;
+
+  document.getElementById("logout").onclick = async () => {
+    await supabase.auth.signOut();
+    location.reload();
+  };
+
+  document.getElementById("save-profile").onclick = async () => {
+    const button = document.getElementById("save-profile");
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Saving...";
+    const nameInput = document.getElementById("profile-name");
+    const name = nameInput.value.trim();
+    if (!name) {
+      alert("Введите имя.");
+      button.disabled = false;
+      button.textContent = originalText;
+      return;
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ name })
+      .eq("id", profile.id);
+
+    if (error) {
+      alert("Ошибка сохранения: " + error.message);
+      button.disabled = false;
+      button.textContent = originalText;
+      return;
+    }
+
+    await renderStudent();
+  };
 }
 
 async function renderStudent() {
@@ -1265,35 +1305,62 @@ if (!user) {
   root.innerHTML = `
     <div style="max-width:420px;margin:60px auto;font-family:system-ui">
       <h2>Login</h2>
-      <input id="email" placeholder="you@company.com" style="width:100%;padding:10px;margin:10px 0"/>
-      <button id="login" style="padding:10px 14px">Send magic link</button>
+      <label style="display:block;font-size:14px;margin:10px 0 6px">Email</label>
+      <input id="email" type="email" placeholder="you@company.com" style="width:100%;padding:10px;margin-bottom:10px"/>
+      <label style="display:block;font-size:14px;margin:10px 0 6px">Password</label>
+      <input id="password" type="password" placeholder="••••••••" style="width:100%;padding:10px;margin-bottom:16px"/>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button id="sign-in" style="padding:10px 14px">Sign in</button>
+        <button id="sign-up" style="padding:10px 14px;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer">Sign up</button>
+      </div>
     </div>
   `;
 
-  document.getElementById("login").onclick = async () => {
+  const runAuth = async (mode) => {
     const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value.trim();
     if (!email) return alert("Введите email");
+    if (!password) return alert("Введите пароль");
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: "https://kirilly2281.github.io/Nota_Test/" }
-    });
+    const buttonId = mode === "signin" ? "sign-in" : "sign-up";
+    const button = document.getElementById(buttonId);
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = mode === "signin" ? "Signing in..." : "Signing up...";
 
-    if (error) alert(error.message);
-    else alert("Проверь почту — отправил ссылку для входа.");
+    const response = mode === "signin"
+      ? await supabase.auth.signInWithPassword({ email, password })
+      : await supabase.auth.signUp({ email, password });
+
+    if (response.error) {
+      alert(response.error.message);
+      button.disabled = false;
+      button.textContent = originalText;
+      return;
+    }
+
+    location.reload();
+  };
+
+  document.getElementById("sign-in").onclick = async () => {
+    await runAuth("signin");
+  };
+
+  document.getElementById("sign-up").onclick = async () => {
+    await runAuth("signup");
   };
 } else {
   // гарантируем, что профиль есть
   await supabase.from("profiles").upsert(
-    { id: user.id, email: user.email, name: user.email },
-    { onConflict: "email" }
+    { id: user.id, email: user.email },
+    { onConflict: "id" }
   );
 
   // читаем роль
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, role")
-    .eq("email", user.email)
+    .select("id, role, name")
+    .eq("id", user.id)
     .single();
 
   if (profileError) {
@@ -1301,11 +1368,19 @@ if (!user) {
     throw profileError;
   }
 
-  const role = profile.role;
+  const role = profile.role || "student";
+  if (!profile.role) {
+    await supabase
+      .from("profiles")
+      .update({ role })
+      .eq("id", profile.id);
+  }
   currentRole = role;
 
   if (role === "admin") {
     await renderAdminStudents();
+  } else if (isBlank(profile.name)) {
+    await renderProfileCompletion(profile);
   } else {
     await renderStudent();
   }
