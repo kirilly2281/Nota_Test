@@ -37,6 +37,39 @@ function isBlank(value) {
   return !value || String(value).trim().length === 0;
 }
 
+function isRecoveryRoute() {
+  const hashValue = location.hash.toLowerCase();
+  return hashValue.includes("reset") || hashValue.includes("type=recovery");
+}
+
+function getHashParams() {
+  const hashValue = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+  return new URLSearchParams(hashValue);
+}
+
+async function establishRecoverySession() {
+  const hashParams = getHashParams();
+  const accessToken = hashParams.get("access_token");
+  const refreshToken = hashParams.get("refresh_token");
+
+  if (accessToken && refreshToken) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    return { session: data?.session || null, error };
+  }
+
+  const code = new URL(window.location.href).searchParams.get("code");
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    return { session: data?.session || null, error };
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  return { session: data?.session || null, error };
+}
+
 async function renderAdmin() {
   const { data: allSubs, error } = await supabase
     .from("submissions")
@@ -1337,10 +1370,14 @@ async function renderResetPassword() {
   const submitButton = document.getElementById("submit-reset");
   const goLoginButton = document.getElementById("go-login");
 
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData?.session) {
-    statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Invalid or expired link. Request a new reset email.</div>`;
+  statusEl.innerHTML = `<div style="padding:12px;background:#eef5ff;border:1px solid #cfe3ff;border-radius:4px;color:#114488">Checking recovery link...</div>`;
+
+  const { session, error: sessionError } = await establishRecoverySession();
+  if (sessionError || !session) {
+    statusEl.innerHTML = `<div style="padding:12px;background:#fee;border:1px solid #fcc;border-radius:4px;color:#c00">Recovery link is invalid or expired. Request a new reset link.</div>`;
     submitButton.disabled = true;
+  } else {
+    statusEl.innerHTML = "";
   }
 
   goLoginButton.onclick = async () => {
@@ -1376,6 +1413,10 @@ async function renderResetPassword() {
 
     statusEl.innerHTML = `<div style="padding:12px;background:#efe;border:1px solid #cfc;border-radius:4px;color:#060">Password updated. You can sign in now.</div>`;
     goLoginButton.style.display = "inline-block";
+    setTimeout(async () => {
+      location.hash = "";
+      await renderLogin();
+    }, 1200);
   };
 }
 
@@ -1465,7 +1506,7 @@ async function renderLogin() {
 
 async function route() {
   // 1) Проверяем пользователя
-  if (location.hash === "#reset") {
+  if (isRecoveryRoute()) {
     await renderResetPassword();
     return;
   }
