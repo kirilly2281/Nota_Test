@@ -137,10 +137,33 @@ async function renderStudent() {
     return;
   }
 
+  let assignedTaskIds = [];
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("assignments")
+    .select("task_id")
+    .eq("user_id", currentUser.id);
+
+  if (assignmentsError) {
+    console.error("Assignments load error:", assignmentsError.message);
+    assignedTaskIds = [];
+  } else {
+    assignedTaskIds = (assignments || []).map(assignment => assignment.task_id);
+  }
+
+  if (assignedTaskIds.length === 0) {
+    root.innerHTML = `
+      <div style="max-width:900px;margin:50px auto;font-family:system-ui">
+        <h2 style="margin:0">No tasks assigned yet</h2>
+        <div style="margin-top:8px;opacity:.8">Ask your admin to assign tasks</div>
+      </div>
+    `;
+    return;
+  }
+
   const { data: tasks, error: tasksError } = await supabase
     .from("tasks")
     .select("id, title, description, materials, materials_url, sort_order")
-    .in("id", Array.from(assignedTaskIds))
+    .in("id", assignedTaskIds)
     .order("sort_order", { ascending: true });
 
   if (tasksError) {
