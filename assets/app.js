@@ -3,7 +3,12 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = "https://txmvkbixfzlsumvmzoyn.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bXZrYml4Znpsc3Vtdm16b3luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMTA4ODMsImV4cCI6MjA4MjU4Njg4M30.hFW0Ndbs7STWlA294xe3lQqJ4Lj2mxFGGuQP-ncbnDY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const RESET_REDIRECT_URL = "https://kirilly2281.github.io/Nota_Test/?reset=1";
+const DEFAULT_BASE_PATH = "/Nota_Test/";
+const basePath = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "/"
+  : DEFAULT_BASE_PATH;
+const APP_BASE_URL = `${location.origin}${basePath}`;
+const RESET_REDIRECT_URL = `${APP_BASE_URL}?reset=1`;
 
 const root = document.getElementById("root");
 root.innerHTML = "<p style='padding:20px'>Loading...</p>";
@@ -1504,7 +1509,13 @@ async function renderLogin() {
 
     const response = mode === "signin"
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
+      : await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${APP_BASE_URL}`
+        }
+      });
 
     if (response.error) {
       const message = response.error.message || "Authentication failed.";
@@ -1515,6 +1526,14 @@ async function renderLogin() {
       }
       button.disabled = false;
       button.textContent = originalText;
+      return;
+    }
+
+    if (mode === "signup") {
+      setAuthMessage("Проверьте почту и перейдите по ссылке для подтверждения.", "success");
+      button.disabled = false;
+      button.textContent = originalText;
+      document.getElementById("password").value = "";
       return;
     }
 
